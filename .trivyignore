@@ -1,0 +1,7 @@
+# The pinned python:3.13-slim base image publishes third-party SBOM entries for
+# msgpack 1.1.2 and setuptools 70.3.0 even though neither distribution exists in
+# the final runtime filesystem. Dockerfile asserts their absence at build time.
+# Remove these suppressions when the upstream base-image SBOM no longer reports
+# the stale entries.
+CVE-2025-14985
+CVE-2025-47273
