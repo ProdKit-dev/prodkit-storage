@@ -1,6 +1,6 @@
 # Maintenance policy (frozen baseline)
 
-**Status:** current baseline **v0.2.0** as an internal application storage foundation.
+**Status:** current baseline **v0.2.1** as an internal application storage foundation.
 Prefer bugfixes and proven shared needs only after each tagged release.
 
 This package is intentionally stable. Prefer shipping product features in consuming applications over expanding this library.
@@ -45,26 +45,28 @@ Documented helpers under `prodkit_storage.database`, `prodkit_storage.redis`, `p
 
 | Version bump | Meaning |
 |--------------|---------|
-| Patch `0.1.x` | Bug fixes only; safe for apps to take |
-| Minor `0.2.0` | Additive APIs only; no intentional breaks |
-| Major `1.0.0` | Breaking changes (rare; prefer app-side adapters) |
+| Patch `0.2.x` | Compatible correctness, security, and operational hardening fixes |
+| Minor `0.x.0` | Additive APIs; pre-1.0 breaking changes require explicit migration notes |
+| Major `1.0.0+` | Stable compatibility contract; breaking changes require a major bump |
 
 Release process:
 
-1. Change code and tests in this repo.
-2. Bump `version` in `pyproject.toml`.
-3. Commit on `main`.
-4. Tag annotated release: `vX.Y.Z`.
-5. Push `main` and the tag.
-6. Bump the pin in each consuming app deliberately.
+1. Create a focused branch from the current default branch.
+2. Change code, tests, documentation, and version metadata on that branch.
+3. Open a pull request and require the repository CI/security checks to pass.
+4. Review the migration and compatibility impact before merging.
+5. Merge the pull request into `main` without rewriting published history.
+6. Tag the merged release commit as `vX.Y.Z`.
+7. Bump the pin in each consuming app deliberately.
 
 Never depend on floating `main` from production apps. Always pin a tag (or exact commit).
+Never move or rewrite a published release tag.
 
 ## Ownership boundary
 
 | This package owns | Each app owns |
 |-------------------|---------------|
-| Engines, pools, sessions, UoW, repositories helpers | Domain models and product schema |
+| Engines, pools, sessions, UoW, repository helpers | Domain models and product schema |
 | Audit/outbox primitives | Business workflows and consumers |
 | Mixins, pagination, locks, RLS helpers | Product-specific policies and key naming |
 | Foundation migrations for shared tables it ships | App Alembic revisions for app tables |
