@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 import weakref
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -315,7 +316,7 @@ def install_query_observer(
 
 
 def instrument_sqlalchemy_engines(
-    engines: list[Engine | None] | tuple[Engine | None, ...],
+    engines: Sequence[Engine | None],
     settings: StorageSettings,
 ) -> bool:
     """Enable official OpenTelemetry SQLAlchemy instrumentation once per runtime."""
