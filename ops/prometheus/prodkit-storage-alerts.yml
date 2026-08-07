@@ -1,0 +1,47 @@
+groups:
+  - name: prodkit-storage
+    interval: 30s
+    rules:
+      - alert: ProdKitStorageDatabaseQueryErrors
+        expr: sum(rate(prodkit_storage_db_query_errors_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sustained ProdKit Storage database query errors
+          description: Database query errors have exceeded 0.1 errors/second for 10 minutes.
+          runbook: docs/runbooks/database.md
+
+      - alert: ProdKitStorageDatabaseQueryErrorsCritical
+        expr: sum(rate(prodkit_storage_db_query_errors_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: High ProdKit Storage database query error rate
+          description: Database query errors have exceeded 1 error/second for 5 minutes.
+          runbook: docs/runbooks/database.md
+
+      - alert: ProdKitStorageRedisCommandErrors
+        expr: sum(rate(prodkit_storage_redis_command_errors_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sustained ProdKit Storage Redis command errors
+          description: Redis command errors have exceeded 0.1 errors/second for 10 minutes.
+          runbook: docs/runbooks/redis.md
+
+      - alert: ProdKitStorageTransactionRollbackSpike
+        expr: >-
+          sum(rate(prodkit_storage_db_transactions_total{outcome="rolled_back"}[10m]))
+          /
+          clamp_min(sum(rate(prodkit_storage_db_transactions_total[10m])), 0.001)
+          > 0.05
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated database transaction rollback ratio
+          description: More than 5% of observed storage transactions are rolling back.
+          runbook: docs/runbooks/database.md
