@@ -12,6 +12,12 @@ breaking changes.
   waivers for high-risk operations.
 - CI enforcement that published migration revisions are immutable and every newly
   added revision passes `prodkit-storage migration-check`.
+- Staged PostgreSQL migration helpers for concurrent indexes, deferred CHECK/FK
+  validation, explicit constraint validation, and prevalidated `SET NOT NULL`.
+- Transactional sync/async resumable backfill runners that commit each bounded batch
+  and its checkpoint atomically.
+- Live interruption/resume coverage proving a failed backfill batch rolls back without
+  advancing its checkpoint or skipping rows on restart.
 - Explicit runtime schema compatibility contract plus sync/async checks and the
   `prodkit-storage schema-check` deployment command.
 - Live PostgreSQL RLS integration coverage proving tenant A cannot read or write
@@ -20,6 +26,8 @@ breaking changes.
   table-count comparison, including matching PostgreSQL client use inside CI.
 - Concurrent PostgreSQL pool + Redis saturation smoke with p50/p95/p99 reporting and
   configurable release thresholds.
+- Bounded dependency-failure smoke proving unavailable PostgreSQL and Redis health
+  checks fail visibly and promptly instead of hanging or returning healthy.
 - Prometheus alert-rule and Grafana dashboard starter assets for database/Redis error,
   latency, and transaction signals.
 - Database, Redis, and transactional-outbox incident runbooks.
@@ -30,10 +38,14 @@ breaking changes.
 
 ### Changed
 
-- CI now verifies schema compatibility after upgrade and after downgrade/roll-forward,
-  performs a real backup/restore exercise, and runs the saturation smoke in addition
-  to the existing lint, typing, migration, unit/integration, audit, image-scan, and
-  SBOM gates.
+- CI now verifies `uv.lock` consistency and installs with `--locked` before running
+  release gates.
+- CI verifies schema compatibility through both sync and async paths after upgrade and
+  after downgrade/roll-forward.
+- CI performs a real backup/restore exercise, full live RLS and resumable-backfill
+  integration coverage, a DB/Redis saturation smoke, and a bounded dependency-failure
+  smoke in addition to existing lint, typing, migration, audit, image-scan, and SBOM
+  gates.
 - Observability documentation now maps package telemetry to the shipped Prometheus,
   Grafana, and incident-response starter assets and documents exporter name-translation
   assumptions.
