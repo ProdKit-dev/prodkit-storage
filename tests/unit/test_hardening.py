@@ -44,7 +44,10 @@ class CompleteSession:
 
 def test_production_rejects_known_cursor_secret() -> None:
     with pytest.raises(ValidationError, match="cursor_signing_secret"):
-        StorageSettings(environment="production")
+        StorageSettings(
+            environment="production",
+            cursor_signing_secret="replace-this-development-only-secret",
+        )
 
     settings = StorageSettings(
         environment="production",
