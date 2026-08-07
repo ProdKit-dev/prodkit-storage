@@ -72,25 +72,31 @@ def test_read_only_transaction_rejects_writes() -> None:
 
 def test_append_only_audit_role_can_insert_but_not_read_payload() -> None:
     database = SyncDatabase(_settings())
-    role = "prodkit_ci_audit_runtime"
     try:
         with database.write_engine.connect().execution_options(
             isolation_level="AUTOCOMMIT"
         ) as connection:
             connection.exec_driver_sql(
-                f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') "
-                f"THEN CREATE ROLE {role} NOLOGIN; END IF; END $$;"
+                "DO $$ BEGIN "
+                "IF NOT EXISTS ("
+                "SELECT 1 FROM pg_roles WHERE rolname = 'prodkit_ci_audit_runtime'"
+                ") THEN CREATE ROLE prodkit_ci_audit_runtime NOLOGIN; "
+                "END IF; END $$;"
             )
-            connection.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {role}")
             connection.exec_driver_sql(
-                f"GRANT INSERT ON TABLE public.storage_audit_events TO {role}"
+                "GRANT USAGE ON SCHEMA public TO prodkit_ci_audit_runtime"
             )
             connection.exec_driver_sql(
-                f"GRANT SELECT (occurred_at) ON TABLE public.storage_audit_events TO {role}"
+                "GRANT INSERT ON TABLE public.storage_audit_events "
+                "TO prodkit_ci_audit_runtime"
+            )
+            connection.exec_driver_sql(
+                "GRANT SELECT (occurred_at) ON TABLE public.storage_audit_events "
+                "TO prodkit_ci_audit_runtime"
             )
 
         with database.transaction() as session:
-            session.execute(text(f"SET LOCAL ROLE {role}"))
+            session.execute(text("SET LOCAL ROLE prodkit_ci_audit_runtime"))
             event = record_audit_event(
                 session,
                 action="integration.audit",
@@ -102,14 +108,14 @@ def test_append_only_audit_role_can_insert_but_not_read_payload() -> None:
 
         with pytest.raises(DBAPIError):
             with database.transaction() as session:
-                session.execute(text(f"SET LOCAL ROLE {role}"))
+                session.execute(text("SET LOCAL ROLE prodkit_ci_audit_runtime"))
                 session.execute(select(AuditEvent.action)).all()
     finally:
         with database.write_engine.connect().execution_options(
             isolation_level="AUTOCOMMIT"
         ) as connection:
-            connection.exec_driver_sql(f"DROP OWNED BY {role}")
-            connection.exec_driver_sql(f"DROP ROLE IF EXISTS {role}")
+            connection.exec_driver_sql("DROP OWNED BY prodkit_ci_audit_runtime")
+            connection.exec_driver_sql("DROP ROLE IF EXISTS prodkit_ci_audit_runtime")
         database.dispose()
 
 
