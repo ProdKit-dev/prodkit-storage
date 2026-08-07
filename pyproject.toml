@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prodkit-storage"
-version = "0.2.1"
+version = "0.3.0"
 description = "Production-grade PostgreSQL/PostGIS, SQLAlchemy, Alembic, and Redis foundation for SaaS applications."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -91,6 +91,7 @@ ignore = [
 "src/prodkit_storage/security/roles.py" = ["S608"]
 "src/prodkit_storage/security/audit.py" = ["S105"]
 "src/prodkit_storage/redis/rate_limit.py" = ["S105"]
+"ops/backup/*.py" = ["S108", "S404", "S603", "S607"]
 "tests/**/*.py" = ["S101", "S105", "S106"]
 
 [tool.mypy]
