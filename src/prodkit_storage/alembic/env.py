@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+from collections.abc import Callable
 from logging.config import fileConfig
-from typing import Any, Callable
+from typing import Any
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
