@@ -20,7 +20,7 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - Serialization/deadlock transaction retry helpers
 - Transaction-scoped PostgreSQL advisory locks
 - Optional tenant, actor, and request context propagated with `SET LOCAL` semantics
-- PostgreSQL SQLSTATE classification and string/integer/native enum helpers
+- PostgreSQL SQLSTATE classification and strict string/integer/native enum helpers
 - Process-aware client identity, slow-query logging, telemetry, and component health probes
 
 ### Multi-tenancy and auditability
@@ -28,9 +28,9 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - Application tenant context through `contextvars`
 - Optional PostgreSQL Row-Level Security integration
 - Safe Alembic helpers for RLS policies
-- Append-only audit event model with classification and redaction policies
+- Audit event model with classification/redaction and append-only runtime-role grants
 - Runtime-role and protected-table RLS verification
-- Transactional outbox with `FOR UPDATE SKIP LOCKED`, retries, stale-lease recovery, and dead-letter state
+- Transactional outbox with `FOR UPDATE SKIP LOCKED`, per-claim lease tokens, optimistic versions, retries, stale-lease recovery, and dead-letter state
 
 ### PostGIS
 
@@ -43,7 +43,7 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 
 - Sync and async pooled clients
 - Retry, health-check, timeout, and lifecycle handling
-- JSON cache with TTL jitter, tag invalidation, and stampede protection
+- JSON cache with TTL jitter, atomic tag invalidation, and stampede protection
 - Token-safe distributed locks with Lua release/extension
 - Idempotency lease and replay state machine
 - Atomic server-time token-bucket rate limiter
@@ -52,11 +52,11 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 
 ### Operations
 
-- Bundled Alembic environment and first migration
+- Bundled Alembic environment and versioned shared-table migrations
+- Explicit owner/migrator role separation with `SET ROLE` support
 - CLI for migrations and dependency health checks
 - PostgreSQL 18/PostGIS 3.6 and Redis 8 development Compose stack
-- CI, linting, strict typing, unit tests, and integration tests
-- Dependency auditing, container vulnerability scanning, SPDX SBOM generation, and Dependabot
+- Active GitHub Actions CI with linting, strict typing, unit tests, live integration tests, migration drift/rollback checks, dependency auditing, image scanning, and SPDX SBOM generation
 - Optional FastAPI, Pydantic, OpenTelemetry, and secret-provider integrations
 - Production guidance for RLS, replicas, pooling, migrations, backup/PITR, Redis durability, and disaster recovery
 
@@ -81,11 +81,13 @@ The development services bind only to loopback:
 All settings use the `PRODKIT_STORAGE_` prefix.
 
 ```dotenv
+PRODKIT_STORAGE_ENVIRONMENT=production
 PRODKIT_STORAGE_DATABASE_URL=postgresql://user:password@db:5432/app
 PRODKIT_STORAGE_REDIS_URL=rediss://user:password@redis:6379/0
 PRODKIT_STORAGE_CURSOR_SIGNING_SECRET=<at-least-32-random-bytes>
 ```
 
+`staging` and `production` reject the package's known development cursor secret.
 A plain PostgreSQL URL is converted to:
 
 - `postgresql+psycopg://` for sync access
@@ -97,6 +99,12 @@ For application-model autogeneration, list modules that import models inheriting
 
 ```dotenv
 PRODKIT_STORAGE_ALEMBIC_MODEL_MODULES=myapp.models,myapp.billing.models
+```
+
+For the recommended `NOINHERIT` migrator/owner role split, also set:
+
+```dotenv
+PRODKIT_STORAGE_MIGRATION_OWNER_ROLE=prodkit_owner
 ```
 
 ## Synchronous usage
@@ -149,7 +157,6 @@ async def update_customer(customer_id):
         await database.dispose()
 ```
 
-
 ## Query foundation
 
 Sorting, filtering, and pagination are explicit and allowlisted. Public API names
@@ -184,10 +191,13 @@ page = await customers.paginate_cursor(
 )
 ```
 
-The new cursor format authenticates the sort definition, last-row values, and
+The cursor format authenticates the sort definition, last-row values, and
 optional query fingerprint. The original two-column cursor API remains available
-for compatibility. Use offset pagination when exact totals or direct page
-navigation are more important than deep-page performance.
+for compatibility. Both sync and async cursor paths de-duplicate ORM scalar
+results so joined eager loads follow SQLAlchemy's `unique()` requirement.
+
+Use offset pagination when exact totals or direct page navigation are more
+important than deep-page performance.
 
 Repositories also support loader options, `FOR UPDATE NOWAIT`,
 `FOR UPDATE SKIP LOCKED`, streaming with `yield_per`, count-safe subqueries,
@@ -209,11 +219,11 @@ with request_context(
     )
 ):
     with database.transaction() as session:
-        # When RLS is enabled, transaction-local app.* settings are applied here.
         ...
 ```
 
-Enable it only after creating policies and using a runtime database role that does not own the protected tables:
+Enable RLS only after creating policies and using a runtime database role that
+does not own the protected tables:
 
 ```dotenv
 PRODKIT_STORAGE_TENANT_RLS_ENABLED=true
@@ -221,7 +231,6 @@ PRODKIT_STORAGE_TENANT_REQUIRED=true
 ```
 
 See [`docs/tenancy.md`](docs/tenancy.md).
-
 
 ## Security and observability integrations
 
@@ -232,9 +241,10 @@ uv add "prodkit-storage[fastapi,observability]"
 ```
 
 The security layer provides audit field classification/redaction, sync and async
-secret-provider protocols, PostgreSQL role bootstrap templates, and RLS
-deployment verification. The Pydantic integration rejects PostgreSQL-incompatible
-NUL characters and provides bounded integer/string helpers.
+secret-provider protocols, PostgreSQL role bootstrap/post-migration grant
+templates, and RLS deployment verification. The Pydantic integration rejects
+PostgreSQL-incompatible NUL characters and provides bounded integer/string
+helpers.
 
 When observability is enabled, the runtime emits database query, transaction,
 pool, Redis, and outbox metrics and preserves request, trace, actor, tenant,
@@ -263,22 +273,34 @@ with database.transaction() as session:
     )
 ```
 
-Workers claim with row locking and skip locked rows:
+Workers claim with row locking and skip locked rows. Each claim receives a fresh
+lease token:
 
 ```python
-from prodkit_storage.outbox import claim_outbox_events, mark_outbox_published
+from prodkit_storage.outbox import claim_outbox_events, complete_outbox_event
 
 with database.transaction() as session:
     events = claim_outbox_events(session, worker_id="worker-1", batch_size=100)
+    claims = [(event.id, event.lock_token, event.topic, event.payload) for event in events]
 
-for event in events:
-    publisher.publish(event.topic, event.payload)
+for event_id, lock_token, topic, payload in claims:
+    assert lock_token is not None
+    publisher.publish(topic, payload)
     with database.transaction() as session:
-        attached = session.merge(event)
-        mark_outbox_published(attached)
+        complete_outbox_event(
+            session,
+            event_id=event_id,
+            lock_token=lock_token,
+        )
 ```
 
-A production dispatcher should make publication idempotent because a process can publish successfully and fail before recording `published`.
+If a stale worker wakes after another worker reclaims the event, ownership-checked
+completion fails with `OutboxLeaseLostError` instead of overwriting the newer
+claim. The ORM model also uses optimistic versioning as a second stale-write
+barrier.
+
+Publication is still at least once: a process can publish successfully and fail
+before recording `published`, so downstream consumers must be idempotent.
 
 ## Redis cache
 
@@ -304,7 +326,10 @@ customer = cache.get_or_set(
 )
 ```
 
-Use separate Redis deployments or namespaces for cache, durable idempotency, locks, streams, and rate limiting when their durability or eviction requirements differ.
+Tag invalidation is one Redis Lua operation, avoiding the old read-then-delete
+race between `SMEMBERS` and deletion. Use separate Redis deployments or
+namespaces for cache, durable idempotency, locks, streams, and rate limiting when
+their durability or eviction requirements differ.
 
 ## PostGIS query
 
@@ -334,7 +359,14 @@ uv run prodkit-storage downgrade -1
 uv run alembic revision --autogenerate -m "add customer table"
 ```
 
-The bundled migration enables `pgcrypto` and `postgis`, creates audit/outbox tables, and intentionally leaves extensions installed during downgrade because other schemas can depend on them.
+Routine migrations create/alter application objects only. PostGIS, pgcrypto,
+`pg_stat_statements`, and other privileged extensions belong to the database
+bootstrap/infrastructure layer; the development Compose init script enables the
+local extensions.
+
+When owner/migrator separation is used, Alembic connects as the migrator and
+`SET ROLE`s to `PRODKIT_STORAGE_MIGRATION_OWNER_ROLE` before applying schema
+changes. See [`docs/migrations.md`](docs/migrations.md).
 
 ## Production boundaries
 
