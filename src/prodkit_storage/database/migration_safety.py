@@ -12,7 +12,6 @@ import ast
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 
 class MigrationSeverity(StrEnum):
@@ -62,7 +61,11 @@ _DESTRUCTIVE_OPS = {
 }
 
 
-def inspect_migration_source(source: str, *, path: str = "<memory>") -> MigrationSafetyReport:
+def inspect_migration_source(
+    source: str,
+    *,
+    path: str = "<memory>",
+) -> MigrationSafetyReport:
     """Inspect the ``upgrade`` function in one Alembic revision source file.
 
     A revision may explicitly waive a finding by declaring a module-level
@@ -102,7 +105,8 @@ def inspect_migration_source(source: str, *, path: str = "<memory>") -> Migratio
 
 def inspect_migration_file(path: str | Path) -> MigrationSafetyReport:
     file_path = Path(path)
-    return inspect_migration_source(file_path.read_text(encoding="utf-8"), path=str(file_path))
+    source = file_path.read_text(encoding="utf-8")
+    return inspect_migration_source(source, path=str(file_path))
 
 
 def assert_migration_file_safe(path: str | Path) -> MigrationSafetyReport:
@@ -161,7 +165,8 @@ class _UpgradeScanner:
                 "destructive-change",
                 MigrationSeverity.ERROR,
                 line,
-                f"op.{operation}() is destructive in upgrade(); use expand/contract or an explicit waiver",
+                f"op.{operation}() is destructive in upgrade(); "
+                "use expand/contract or an explicit waiver",
             )
             return
 
@@ -186,8 +191,7 @@ class _UpgradeScanner:
             return
 
         if operation in {"create_check_constraint", "create_foreign_key"}:
-            table_position = 1
-            table = _string_argument(call, table_position, "table_name")
+            table = _string_argument(call, 1, "table_name")
             if operation == "create_foreign_key":
                 table = _string_argument(call, 1, "source_table") or table
             if table and table in self.created_tables:
@@ -197,7 +201,8 @@ class _UpgradeScanner:
                     "immediate-constraint-validation",
                     MigrationSeverity.ERROR,
                     line,
-                    "constraint on an existing table should be added NOT VALID and validated separately",
+                    "constraint on an existing table should be added NOT VALID "
+                    "and validated separately",
                 )
             return
 
@@ -209,12 +214,14 @@ class _UpgradeScanner:
             if column_call is not None and _call_method(column_call) == "Column":
                 nullable = _keyword_value(column_call, "nullable")
                 server_default = _keyword_value(column_call, "server_default")
-                if isinstance(nullable, ast.Constant) and nullable.value is False and server_default is None:
+                non_null = isinstance(nullable, ast.Constant) and nullable.value is False
+                if non_null and server_default is None:
                     self._issue(
                         "non-null-column-without-backfill",
                         MigrationSeverity.ERROR,
                         line,
-                        "non-null column on an existing table requires an expand/backfill/enforce sequence",
+                        "non-null column on an existing table requires an "
+                        "expand/backfill/enforce sequence",
                     )
             return
 
@@ -224,7 +231,8 @@ class _UpgradeScanner:
                     "column-type-rewrite",
                     MigrationSeverity.ERROR,
                     line,
-                    "column type changes may rewrite/lock the table; use a staged expand/backfill/switch plan",
+                    "column type changes may rewrite/lock the table; use a staged "
+                    "expand/backfill/switch plan",
                 )
             nullable = _keyword_value(call, "nullable")
             if isinstance(nullable, ast.Constant) and nullable.value is False:
@@ -232,7 +240,8 @@ class _UpgradeScanner:
                     "set-not-null",
                     MigrationSeverity.WARNING,
                     line,
-                    "SET NOT NULL scans existing rows; validate data and budget the lock before deployment",
+                    "SET NOT NULL scans existing rows; validate data and budget "
+                    "the lock before deployment",
                 )
             return
 
@@ -269,11 +278,17 @@ def _extract_waivers(tree: ast.Module) -> frozenset[str]:
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-        if not any(isinstance(target, ast.Name) and target.id == "migration_safety_allow" for target in targets):
+        has_waiver_target = any(
+            isinstance(target, ast.Name) and target.id == "migration_safety_allow"
+            for target in targets
+        )
+        if not has_waiver_target:
             continue
         value = node.value
         if not isinstance(value, (ast.Set, ast.List, ast.Tuple)):
-            raise ValueError("migration_safety_allow must be a literal set/list/tuple of strings")
+            raise ValueError(
+                "migration_safety_allow must be a literal set/list/tuple of strings"
+            )
         items: set[str] = set()
         for element in value.elts:
             if not isinstance(element, ast.Constant) or not isinstance(element.value, str):
@@ -310,12 +325,20 @@ def _call_method(call: ast.Call) -> str | None:
 
 
 def _call_argument(call: ast.Call, position: int, keyword: str) -> ast.Call | None:
-    value: ast.AST | None = call.args[position] if len(call.args) > position else _keyword_value(call, keyword)
+    value: ast.AST | None
+    if len(call.args) > position:
+        value = call.args[position]
+    else:
+        value = _keyword_value(call, keyword)
     return value if isinstance(value, ast.Call) else None
 
 
 def _string_argument(call: ast.Call, position: int, keyword: str) -> str | None:
-    value: ast.AST | None = call.args[position] if len(call.args) > position else _keyword_value(call, keyword)
+    value: ast.AST | None
+    if len(call.args) > position:
+        value = call.args[position]
+    else:
+        value = _keyword_value(call, keyword)
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
         return value.value
     return None
