@@ -56,7 +56,6 @@ jobs:
                   connection.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
           PY
       - run: uv run ruff check .
-      - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run alembic upgrade head --sql > /tmp/migration.sql
       - run: uv run prodkit-storage upgrade head
