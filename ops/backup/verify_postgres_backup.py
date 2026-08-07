@@ -10,18 +10,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import psycopg
 from sqlalchemy.engine import make_url
 
 
-def _run(command: Sequence[str]) -> None:
-    subprocess.run(command, check=True)
+def _run(command: Sequence[str], *, env: Mapping[str, str] | None = None) -> None:
+    subprocess.run(command, check=True, env=None if env is None else dict(env))
 
 
 def _url_with_database(url: str, database: str) -> str:
@@ -33,6 +34,21 @@ def _connection_parts(url: str) -> tuple[str, str]:
     if parsed.username is None or parsed.database is None:
         raise ValueError("database URL must contain a username and database name")
     return parsed.username, parsed.database
+
+
+def _local_client_environment(url: str) -> tuple[list[str], dict[str, str]]:
+    parsed = make_url(url)
+    args: list[str] = []
+    if parsed.host:
+        args.extend(["--host", parsed.host])
+    if parsed.port:
+        args.extend(["--port", str(parsed.port)])
+    if parsed.username:
+        args.extend(["--username", parsed.username])
+    environment = dict(os.environ)
+    if parsed.password:
+        environment["PGPASSWORD"] = parsed.password
+    return args, environment
 
 
 def _table_counts(url: str, schema: str) -> dict[str, int]:
@@ -52,7 +68,10 @@ def _table_counts(url: str, schema: str) -> dict[str, int]:
             for table in tables:
                 identifier = psycopg.sql.Identifier(schema, table)
                 cursor.execute(psycopg.sql.SQL("SELECT count(*) FROM {}").format(identifier))
-                counts[table] = int(cursor.fetchone()[0])
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"failed to count restored table {schema}.{table}")
+                counts[table] = int(row[0])
     return counts
 
 
@@ -71,6 +90,7 @@ def verify(
     restore_url = _url_with_database(database_url, restore_database)
     dump_path = Path(f"/tmp/prodkit-storage-{secrets.token_hex(6)}.dump")
     created = False
+    command_environment: Mapping[str, str] | None = None
 
     if docker_container:
         container_dump = f"/tmp/{dump_path.name}"
@@ -115,32 +135,36 @@ def verify(
         )
         cleanup_dump = _docker_command(docker_container, "rm", "-f", container_dump)
     else:
+        connection_args, command_environment = _local_client_environment(database_url)
         dump_command = [
             "pg_dump",
-            database_url,
+            *connection_args,
+            "--dbname",
+            database,
             "--format=custom",
             "--no-owner",
             "--no-acl",
             "--file",
             str(dump_path),
         ]
-        create_command = ["createdb", restore_url]
+        create_command = ["createdb", *connection_args, restore_database]
         restore_command = [
             "pg_restore",
+            *connection_args,
             "--dbname",
-            restore_url,
+            restore_database,
             "--no-owner",
             "--no-acl",
             str(dump_path),
         ]
-        drop_command = ["dropdb", "--if-exists", restore_url]
+        drop_command = ["dropdb", *connection_args, "--if-exists", restore_database]
         cleanup_dump = ["rm", "-f", str(dump_path)]
 
     try:
-        _run(dump_command)
-        _run(create_command)
+        _run(dump_command, env=command_environment)
+        _run(create_command, env=command_environment)
         created = True
-        _run(restore_command)
+        _run(restore_command, env=command_environment)
         source_counts = _table_counts(database_url, schema)
         restored_counts = _table_counts(restore_url, schema)
         if source_counts != restored_counts:
@@ -156,8 +180,8 @@ def verify(
         }
     finally:
         if created:
-            _run(drop_command)
-        _run(cleanup_dump)
+            _run(drop_command, env=command_environment)
+        _run(cleanup_dump, env=command_environment)
 
 
 def build_parser() -> argparse.ArgumentParser:
