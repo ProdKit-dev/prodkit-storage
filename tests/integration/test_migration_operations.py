@@ -19,19 +19,23 @@ pytestmark = pytest.mark.integration
 _TABLE = "storage_ci_migration_ops"
 _INDEX = "ix_storage_ci_migration_ops_value"
 _CHECK = "ck_storage_ci_migration_ops_positive"
+_DROP_TABLE = "DROP TABLE IF EXISTS storage_ci_migration_ops"
+_CREATE_TABLE = (
+    "CREATE TABLE storage_ci_migration_ops ("
+    "id integer PRIMARY KEY, value integer NULL)"
+)
+_INSERT_ROWS = (
+    "INSERT INTO storage_ci_migration_ops (id, value) VALUES (1, 1), (2, 2)"
+)
 
 
 def test_concurrent_index_and_deferred_constraint_helpers() -> None:
     database = SyncDatabase(StorageSettings(environment="test"))
     try:
         with database.write_engine.begin() as connection:
-            connection.exec_driver_sql(f"DROP TABLE IF EXISTS {_TABLE}")
-            connection.exec_driver_sql(
-                f"CREATE TABLE {_TABLE} (id integer PRIMARY KEY, value integer NULL)"
-            )
-            connection.exec_driver_sql(
-                f"INSERT INTO {_TABLE} (id, value) VALUES (1, 1), (2, 2)"
-            )
+            connection.exec_driver_sql(_DROP_TABLE)
+            connection.exec_driver_sql(_CREATE_TABLE)
+            connection.exec_driver_sql(_INSERT_ROWS)
 
         with database.write_engine.connect() as connection:
             context = MigrationContext.configure(connection)
@@ -86,7 +90,7 @@ def test_concurrent_index_and_deferred_constraint_helpers() -> None:
             ) is True
     finally:
         with database.write_engine.begin() as connection:
-            connection.exec_driver_sql(f"DROP TABLE IF EXISTS {_TABLE}")
+            connection.exec_driver_sql(_DROP_TABLE)
         database.dispose()
 
 
@@ -94,13 +98,9 @@ def test_enforce_not_null_uses_validated_check_path() -> None:
     database = SyncDatabase(StorageSettings(environment="test"))
     try:
         with database.write_engine.begin() as connection:
-            connection.exec_driver_sql(f"DROP TABLE IF EXISTS {_TABLE}")
-            connection.exec_driver_sql(
-                f"CREATE TABLE {_TABLE} (id integer PRIMARY KEY, value integer NULL)"
-            )
-            connection.exec_driver_sql(
-                f"INSERT INTO {_TABLE} (id, value) VALUES (1, 1), (2, 2)"
-            )
+            connection.exec_driver_sql(_DROP_TABLE)
+            connection.exec_driver_sql(_CREATE_TABLE)
+            connection.exec_driver_sql(_INSERT_ROWS)
 
         with database.write_engine.connect() as connection:
             context = MigrationContext.configure(connection)
@@ -112,11 +112,11 @@ def test_enforce_not_null_uses_validated_check_path() -> None:
             assert connection.scalar(
                 text(
                     "SELECT attnotnull FROM pg_attribute "
-                    "WHERE attrelid = :table::regclass AND attname = 'value'"
+                    "WHERE attrelid = to_regclass(:table) AND attname = 'value'"
                 ),
                 {"table": _TABLE},
             ) is True
     finally:
         with database.write_engine.begin() as connection:
-            connection.exec_driver_sql(f"DROP TABLE IF EXISTS {_TABLE}")
+            connection.exec_driver_sql(_DROP_TABLE)
         database.dispose()
