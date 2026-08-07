@@ -31,6 +31,14 @@ class _EnumType(TypeDecorator[EnumT], Generic[EnumT]):
             return value
         return self.enum_class(value)
 
+    def _member(self, raw: Any) -> EnumT:
+        try:
+            return self.enum_class(raw)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"{raw!r} is not a valid value for {self.enum_class.__name__}"
+            ) from error
+
 
 class StringEnumType(_EnumType[EnumT]):
     """Store an enum's value in a portable VARCHAR column."""
@@ -63,7 +71,8 @@ class StringEnumType(_EnumType[EnumT]):
         raw = value.value if isinstance(value, self.enum_class) else value
         if not isinstance(raw, str):
             raise TypeError("StringEnumType values must be strings")
-        return raw
+        member = self._member(raw)
+        return str(member.value)
 
 
 class IntegerEnumType(_EnumType[EnumT]):
@@ -83,7 +92,8 @@ class IntegerEnumType(_EnumType[EnumT]):
         raw = value.value if isinstance(value, self.enum_class) else value
         if not isinstance(raw, int):
             raise TypeError("IntegerEnumType values must be integers")
-        return raw
+        member = self._member(raw)
+        return int(member.value)
 
 
 def postgres_enum_type(

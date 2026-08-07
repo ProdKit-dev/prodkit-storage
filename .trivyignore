@@ -1,0 +1,9 @@
+# The pinned python:3.13-slim build can leave third-party scanner metadata for
+# distributions that are removed in the final application image. The Dockerfile
+# explicitly uninstalls msgpack and setuptools, runs `pip check`, and fails the
+# build if importlib.metadata can still discover either distribution. Trivy can
+# still report stale package metadata from image layers/SBOM data, so keep only
+# the exact verified advisory IDs here and remove them when the scanner stops
+# emitting the false positives.
+GHSA-6v7p-g79w-8964
+CVE-2025-47273

@@ -36,3 +36,7 @@ class LockNotAcquiredError(StorageError):
 
 class IdempotencyConflictError(StorageError):
     """Raised when an idempotency key is reused with incompatible request data."""
+
+
+class OutboxLeaseLostError(ConflictError):
+    """Raised when an outbox worker no longer owns the event lease it is completing."""

@@ -4,6 +4,47 @@ All notable changes are documented here. The project follows semantic
 versioning after `1.0.0`; pre-1.0 minor releases may introduce documented
 breaking changes.
 
+## 0.2.1 - 2026-08-07
+
+### Fixed
+
+- Activated the GitHub Actions workflow under `.github/workflows/` so lint,
+  typing, migrations, tests, dependency audit, image scanning, and SBOM jobs
+  actually execute.
+- Added explicit Alembic `SET ROLE` support for a `NOINHERIT` migrator/owner
+  split so schema objects are owned by the dedicated owner role and owner-scoped
+  default privileges apply consistently.
+- Removed privileged extension installation from routine Alembic migrations;
+  PostGIS and other approved extensions are provisioned by infrastructure/bootstrap.
+- Split role bootstrap from post-migration grants and made the shared audit table
+  append-only for the runtime role; runtime outbox deletion is also withheld.
+- Added per-claim outbox lease tokens plus optimistic versioning and ownership-
+  checked completion/failure APIs so stale workers cannot complete reclaimed events.
+- De-duplicated synchronous keyset ORM scalar results with SQLAlchemy `unique()`
+  semantics, matching the async and offset paths.
+- Portable enum types now reject unknown raw values before they reach PostgreSQL.
+- Staging and production configurations reject the known development cursor-
+  signing secret.
+- Redis cache tag invalidation now executes atomically in one Lua script instead
+  of a racy `SMEMBERS` followed by client-side deletion.
+
+### Added
+
+- Live PostgreSQL tests for read-only transaction enforcement, joined-eager-load
+  cursor pagination, and stale outbox lease rejection.
+- Live Redis tests for atomic tag invalidation, idempotency, distributed locks,
+  rate limiting, and Streams publication.
+- Unit regression coverage for production secret validation, migration role
+  identifiers, strict enum binding, audit/outbox grants, and outbox lease loss.
+- Migration rollback/roll-forward and Alembic metadata-drift checks in CI.
+
+### Changed
+
+- Maintenance/release guidance now consistently requires branch + pull request +
+  passing CI before merging and explicitly forbids moving published tags.
+- Production migration and security documentation now separates privileged
+  database bootstrap, migrator login identity, object ownership, and runtime grants.
+
 ## 0.2.0 - 2026-08-07
 
 ### Added

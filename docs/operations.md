@@ -6,6 +6,8 @@ Prefer a managed PostgreSQL service with PostGIS support unless operating Postgr
 
 Redis should also use private networking, authentication/ACLs, TLS where traffic leaves a trusted host boundary, replication/failover, and workload-appropriate persistence and eviction.
 
+Provision approved PostgreSQL extensions in a privileged bootstrap/infrastructure workflow. Routine application migrations should connect as a dedicated migrator and, when owner separation is enabled, `SET ROLE` to the non-login schema owner.
+
 ## Connection budgeting
 
 Compute the worst case across every process:
@@ -46,6 +48,18 @@ PostgreSQL data checksums help detect corruption but are not a backup.
 
 Track replica lag in bytes and time. The application must tolerate replicas being unavailable and route critical reads to the primary. After failover, dispose/recreate pools so stale sockets and DNS state do not linger.
 
+## Outbox operations
+
+Each claimed outbox event receives a fresh `lock_token` and an optimistic `version`. A dispatcher that publishes outside the claim transaction should persist the `(event_id, lock_token)` claim and call the ownership-checked completion/failure helpers. If a stale worker wakes after a reclaim, treat `OutboxLeaseLostError` as an expected concurrency outcome; do not retry completion with the stale token.
+
+Operationally:
+
+- alert on oldest pending age, processing age, retry counts, and dead events;
+- make downstream consumers idempotent because delivery remains at least once;
+- replay dead events through an explicit operator workflow that records who initiated the replay and why;
+- never "fix" a backlog by bulk-marking events published without verifying the external side effect;
+- use a separate retention workflow for deleting old published/dead rows rather than granting routine runtime deletion.
+
 ## PostgreSQL monitoring
 
 Monitor at least:
@@ -78,6 +92,7 @@ For locks and idempotency, `noeviction` is safer than silently deleting coordina
 
 - Never expose PostgreSQL or Redis directly to the public internet.
 - Use least-privilege roles; runtime roles must not own tables or migrations.
+- Keep the shared audit table append-only for the runtime role; grant audit reads to a separate approved role.
 - Rotate credentials and support dual credentials during rotation.
 - Never log full DSNs, Redis URLs, secrets, query parameters containing personal data, or unredacted audit snapshots.
 - Review audit `before`/`after` fields for secrets and regulated data.
@@ -95,6 +110,8 @@ Define behavior per feature:
 - Idempotency outage: fail closed for payments/provisioning; do not risk duplicate side effects.
 - Stream outage: keep events in the PostgreSQL outbox and retry later.
 
+Cache tag invalidation is atomic on the Redis server. If Redis Cluster is introduced, validate that the chosen key/tag layout and Lua execution remain same-slot compatible before enabling this primitive unchanged.
+
 ## Disaster recovery exercise
 
-A credible exercise restores PostgreSQL to a selected timestamp, verifies extensions and migrations, restores or rebuilds Redis according to workload, rotates credentials, starts applications against the recovered systems, validates tenant isolation and critical workflows, and measures actual RPO/RTO.
+A credible exercise restores PostgreSQL to a selected timestamp, verifies extensions and migrations, restores or rebuilds Redis according to workload, reapplies/revalidates database roles and grants, rotates credentials, starts applications against the recovered systems, validates tenant isolation and critical workflows, and measures actual RPO/RTO.

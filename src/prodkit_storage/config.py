@@ -21,6 +21,11 @@ IsolationLevel = Literal[
     "SERIALIZABLE",
 ]
 ProcessType = Literal["app", "worker", "scheduler", "script", "migration", "test"]
+DeploymentEnvironment = Literal["development", "test", "staging", "production"]
+_INSECURE_CURSOR_SECRET = "replace-this-development-only-secret"  # noqa: S105
+_POSTGRES_IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*")
+_CUSTOM_SETTING = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
+_MODEL_MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
 
 
 class StorageSettings(BaseSettings):
@@ -39,6 +44,7 @@ class StorageSettings(BaseSettings):
         validate_default=True,
     )
 
+    environment: DeploymentEnvironment = "development"
     database_url: SecretStr = Field(
         default=SecretStr("postgresql://prodkit:prodkit@localhost:5432/prodkit")
     )
@@ -53,6 +59,7 @@ class StorageSettings(BaseSettings):
     instance_id: str | None = Field(default=None, max_length=128)
 
     database_schema: str = "public"
+    migration_owner_role: str | None = None
     alembic_model_modules: str = ""
     echo_sql: bool = False
     pool_pre_ping: bool = True
@@ -84,9 +91,7 @@ class StorageSettings(BaseSettings):
     cache_default_ttl_seconds: int = Field(default=300, ge=1)
     cache_ttl_jitter_ratio: float = Field(default=0.10, ge=0, le=0.50)
 
-    cursor_signing_secret: SecretStr = Field(
-        default=SecretStr("replace-this-development-only-secret")
-    )
+    cursor_signing_secret: SecretStr = Field(default=SecretStr(_INSECURE_CURSOR_SECRET))
     slow_query_threshold_ms: float = Field(default=250.0, gt=0)
     log_query_parameters: bool = False
 
@@ -119,11 +124,23 @@ class StorageSettings(BaseSettings):
         normalized = value.strip()
         return normalized or None
 
+    @field_validator("migration_owner_role")
+    @classmethod
+    def _safe_optional_role(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if _POSTGRES_IDENTIFIER.fullmatch(value) is None:
+            raise ValueError("migration_owner_role must be a lowercase PostgreSQL identifier")
+        return value
+
     @field_validator("rls_tenant_setting", "rls_actor_setting", "rls_request_setting")
     @classmethod
     def _safe_setting_name(cls, value: str) -> str:
         value = value.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", value) is None:
+        if _CUSTOM_SETTING.fullmatch(value) is None:
             raise ValueError("RLS setting names must be valid PostgreSQL custom settings")
         return value
 
@@ -146,8 +163,7 @@ class StorageSettings(BaseSettings):
     @classmethod
     def _safe_model_modules(cls, value: str) -> str:
         modules = [item.strip() for item in value.split(",") if item.strip()]
-        pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
-        if any(pattern.fullmatch(module) is None for module in modules):
+        if any(_MODEL_MODULE.fullmatch(module) is None for module in modules):
             raise ValueError("alembic_model_modules must contain comma-separated module names")
         return ",".join(dict.fromkeys(modules))
 
@@ -155,12 +171,12 @@ class StorageSettings(BaseSettings):
     @classmethod
     def _safe_schema(cls, value: str) -> str:
         value = value.strip()
-        if re.fullmatch(r"[a-z_][a-z0-9_]*", value) is None:
+        if _POSTGRES_IDENTIFIER.fullmatch(value) is None:
             raise ValueError("database_schema must be a lowercase PostgreSQL identifier")
         return value
 
     @model_validator(mode="after")
-    def _validate_urls(self) -> StorageSettings:
+    def _validate_urls_and_environment(self) -> StorageSettings:
         for url in (
             self.database_url,
             self.sync_database_url,
@@ -173,6 +189,14 @@ class StorageSettings(BaseSettings):
             parsed = make_url(url.get_secret_value())
             if parsed.get_backend_name() != "postgresql":
                 raise ValueError("all database URLs must use PostgreSQL")
+
+        if (
+            self.environment in {"staging", "production"}
+            and self.cursor_signing_secret.get_secret_value() == _INSECURE_CURSOR_SECRET
+        ):
+            raise ValueError(
+                "cursor_signing_secret must be explicitly configured in staging/production"
+            )
         return self
 
     @cached_property
@@ -236,4 +260,9 @@ def _with_driver(url: URL, drivername: str) -> URL:
     return url.set(drivername=drivername)
 
 
-__all__ = ["IsolationLevel", "ProcessType", "StorageSettings"]
+__all__ = [
+    "DeploymentEnvironment",
+    "IsolationLevel",
+    "ProcessType",
+    "StorageSettings",
+]
