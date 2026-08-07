@@ -1,6 +1,7 @@
 # Maintenance policy (frozen baseline)
 
-**Status:** frozen at **v0.1.0** as an internal application storage foundation.
+**Status:** current baseline **v0.2.0** as an internal application storage foundation.
+Prefer bugfixes and proven shared needs only after each tagged release.
 
 This package is intentionally stable. Prefer shipping product features in consuming applications over expanding this library.
 

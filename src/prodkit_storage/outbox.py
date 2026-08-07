@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from prodkit_storage.config import StorageSettings
 from prodkit_storage.context import get_request_context
+from prodkit_storage.database.observability import get_telemetry
 from prodkit_storage.models.outbox import OutboxEvent
 
 
@@ -154,3 +157,69 @@ def _validate_claim_options(
         raise ValueError("batch_size must be between 1 and 1000")
     if stale_after <= timedelta(0):
         raise ValueError("stale_after must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxMetrics:
+    pending: int
+    processing: int
+    published: int
+    dead: int
+    oldest_pending_age_seconds: float | None
+
+
+def get_outbox_metrics(session: Session) -> OutboxMetrics:
+    now = datetime.now(timezone.utc)
+    counts = dict(
+        session.execute(
+            select(OutboxEvent.status, func.count())
+            .group_by(OutboxEvent.status)
+        ).all()
+    )
+    oldest = session.scalar(
+        select(func.min(OutboxEvent.created_at)).where(OutboxEvent.status == "pending")
+    )
+    metrics = _build_outbox_metrics(counts, oldest, now)
+    settings = session.info.get("storage_settings")
+    if isinstance(settings, StorageSettings):
+        get_telemetry(settings).record_outbox(
+            pending=metrics.pending,
+            dead=metrics.dead,
+            oldest_pending_age_seconds=metrics.oldest_pending_age_seconds,
+        )
+    return metrics
+
+
+async def get_outbox_metrics_async(session: AsyncSession) -> OutboxMetrics:
+    now = datetime.now(timezone.utc)
+    result = await session.execute(
+        select(OutboxEvent.status, func.count()).group_by(OutboxEvent.status)
+    )
+    counts = dict(result.all())
+    oldest = await session.scalar(
+        select(func.min(OutboxEvent.created_at)).where(OutboxEvent.status == "pending")
+    )
+    metrics = _build_outbox_metrics(counts, oldest, now)
+    settings = session.sync_session.info.get("storage_settings")
+    if isinstance(settings, StorageSettings):
+        get_telemetry(settings).record_outbox(
+            pending=metrics.pending,
+            dead=metrics.dead,
+            oldest_pending_age_seconds=metrics.oldest_pending_age_seconds,
+        )
+    return metrics
+
+
+def _build_outbox_metrics(
+    counts: dict[str, int],
+    oldest: datetime | None,
+    now: datetime,
+) -> OutboxMetrics:
+    age = max((now - oldest).total_seconds(), 0.0) if oldest is not None else None
+    return OutboxMetrics(
+        pending=int(counts.get("pending", 0)),
+        processing=int(counts.get("processing", 0)),
+        published=int(counts.get("published", 0)),
+        dead=int(counts.get("dead", 0)),
+        oldest_pending_age_seconds=age,
+    )

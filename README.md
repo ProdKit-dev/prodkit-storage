@@ -2,8 +2,6 @@
 
 A standalone, typed Python foundation for enterprise SaaS persistence using PostgreSQL, PostGIS, SQLAlchemy, Alembic, and Redis. It exposes parallel synchronous and asynchronous APIs while keeping transaction boundaries explicit.
 
-> **Frozen baseline:** `v0.1.0`. This library is maintained for bugfixes and proven shared needs only. See [MAINTENANCE.md](MAINTENANCE.md). To depend on it from another app, see [docs/consuming.md](docs/consuming.md) and [examples/consumer](examples/consumer).
-
 > This repository is an application storage foundation, not a managed database service. Backups, replication, failover, capacity management, encryption keys, network policy, and incident response remain deployment responsibilities.
 
 ## Included
@@ -15,19 +13,23 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - Bounded pools, pre-ping, recycling, connect/statement/lock/idle-transaction timeouts
 - Typed declarative base and reusable UUID, timestamp, tenant, soft-delete, external-ID, and optimistic-lock mixins
 - Explicit session, transaction, read-session, read-only transaction, and unit-of-work APIs
-- Generic sync/async repositories
-- Signed keyset pagination with deterministic tie-breaking
+- Typed read/write session intent for sync and async callers
+- Generic sync/async repositories with loader options, streaming, row locking, and bulk operations
+- Allowlisted filtering and deterministic multi-column sorting with explicit null placement
+- Sort- and query-bound signed keyset pagination plus optional offset pagination
 - Serialization/deadlock transaction retry helpers
 - Transaction-scoped PostgreSQL advisory locks
 - Optional tenant, actor, and request context propagated with `SET LOCAL` semantics
-- Slow-query logging and component health probes
+- PostgreSQL SQLSTATE classification and string/integer/native enum helpers
+- Process-aware client identity, slow-query logging, telemetry, and component health probes
 
 ### Multi-tenancy and auditability
 
 - Application tenant context through `contextvars`
 - Optional PostgreSQL Row-Level Security integration
 - Safe Alembic helpers for RLS policies
-- Append-only audit event model
+- Append-only audit event model with classification and redaction policies
+- Runtime-role and protected-table RLS verification
 - Transactional outbox with `FOR UPDATE SKIP LOCKED`, retries, stale-lease recovery, and dead-letter state
 
 ### PostGIS
@@ -46,7 +48,7 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - Idempotency lease and replay state machine
 - Atomic server-time token-bucket rate limiter
 - Redis Streams publisher
-- Health probes
+- Health probes and command-level OpenTelemetry metrics
 
 ### Operations
 
@@ -54,19 +56,11 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - CLI for migrations and dependency health checks
 - PostgreSQL 18/PostGIS 3.6 and Redis 8 development Compose stack
 - CI, linting, strict typing, unit tests, and integration tests
+- Dependency auditing, container vulnerability scanning, SPDX SBOM generation, and Dependabot
+- Optional FastAPI, Pydantic, OpenTelemetry, and secret-provider integrations
 - Production guidance for RLS, replicas, pooling, migrations, backup/PITR, Redis durability, and disaster recovery
 
-## Use from another repository
-
-Pin a release tag (do not float on `main`):
-
-```bash
-uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.1.0"
-```
-
-Full install, boundary, and upgrade notes: [docs/consuming.md](docs/consuming.md).
-
-## Quick start (this repo)
+## Quick start
 
 ```bash
 cp .env.example .env
@@ -155,6 +149,50 @@ async def update_customer(customer_id):
         await database.dispose()
 ```
 
+
+## Query foundation
+
+Sorting, filtering, and pagination are explicit and allowlisted. Public API names
+are mapped to SQLAlchemy expressions by each domain instead of accepting raw
+column names.
+
+```python
+from sqlalchemy import select
+
+from prodkit_storage.database.pagination import CursorCodec
+from prodkit_storage.database.sorting import SortRegistry
+
+sorting = SortRegistry(
+    name="customer-list-v1",
+    fields={
+        "created_at": Customer.created_at,
+        "name": Customer.name,
+        "id": Customer.id,
+    },
+    default=("-created_at",),
+    tie_breaker="id",
+)
+sort = sorting.parse(requested_sorting)
+
+page = await customers.paginate_cursor(
+    select(Customer),
+    sort=sort,
+    codec=CursorCodec(settings.cursor_secret_bytes),
+    cursor=cursor,
+    limit=50,
+    query_fingerprint="active-customers-v1",
+)
+```
+
+The new cursor format authenticates the sort definition, last-row values, and
+optional query fingerprint. The original two-column cursor API remains available
+for compatibility. Use offset pagination when exact totals or direct page
+navigation are more important than deep-page performance.
+
+Repositories also support loader options, `FOR UPDATE NOWAIT`,
+`FOR UPDATE SKIP LOCKED`, streaming with `yield_per`, count-safe subqueries,
+and explicit flush/refresh behavior. See [`docs/querying.md`](docs/querying.md).
+
 ## Request and tenant context
 
 ```python
@@ -183,6 +221,28 @@ PRODKIT_STORAGE_TENANT_REQUIRED=true
 ```
 
 See [`docs/tenancy.md`](docs/tenancy.md).
+
+
+## Security and observability integrations
+
+Install optional integrations as needed:
+
+```bash
+uv add "prodkit-storage[fastapi,observability]"
+```
+
+The security layer provides audit field classification/redaction, sync and async
+secret-provider protocols, PostgreSQL role bootstrap templates, and RLS
+deployment verification. The Pydantic integration rejects PostgreSQL-incompatible
+NUL characters and provides bounded integer/string helpers.
+
+When observability is enabled, the runtime emits database query, transaction,
+pool, Redis, and outbox metrics and preserves request, trace, actor, tenant,
+process, component, and instance correlation. Exporters, sampling, SLOs, and
+alerts remain application/deployment responsibilities.
+
+See [`docs/security.md`](docs/security.md) and
+[`docs/observability.md`](docs/observability.md).
 
 ## Transactional outbox
 
@@ -291,6 +351,9 @@ Read the operational documents before deployment:
 
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/tenancy.md`](docs/tenancy.md)
+- [`docs/querying.md`](docs/querying.md)
+- [`docs/security.md`](docs/security.md)
+- [`docs/observability.md`](docs/observability.md)
 - [`docs/migrations.md`](docs/migrations.md)
 - [`docs/operations.md`](docs/operations.md)
 - [`docs/enterprise-checklist.md`](docs/enterprise-checklist.md)

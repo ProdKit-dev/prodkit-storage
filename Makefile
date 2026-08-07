@@ -1,4 +1,4 @@
-.PHONY: install up down migrate doctor test integration lint typecheck check clean
+.PHONY: install up down migrate doctor test integration lint typecheck security check clean
 
 install:
 	uv sync --all-extras
@@ -27,6 +27,13 @@ lint:
 
 typecheck:
 	uv run mypy
+
+security:
+	uv run pip-audit
+	docker build --tag prodkit-storage:local .
+	docker run --rm aquasec/trivy:latest image \
+		--exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+		prodkit-storage:local
 
 check: lint typecheck test
 

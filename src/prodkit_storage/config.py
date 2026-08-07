@@ -1,7 +1,8 @@
-"""Environment-driven configuration for PostgreSQL and Redis."""
+"""Environment-driven configuration for PostgreSQL, Redis, and telemetry."""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from functools import cached_property
 from typing import Literal
@@ -19,6 +20,7 @@ IsolationLevel = Literal[
     "REPEATABLE READ",
     "SERIALIZABLE",
 ]
+ProcessType = Literal["app", "worker", "scheduler", "script", "migration", "test"]
 
 
 class StorageSettings(BaseSettings):
@@ -46,6 +48,10 @@ class StorageSettings(BaseSettings):
     async_read_database_url: SecretStr | None = None
 
     application_name: str = Field(default="prodkit-storage", max_length=63)
+    service_name: str = Field(default="prodkit-storage", max_length=63)
+    process_type: ProcessType = "app"
+    instance_id: str | None = Field(default=None, max_length=128)
+
     database_schema: str = "public"
     alembic_model_modules: str = ""
     echo_sql: bool = False
@@ -84,13 +90,34 @@ class StorageSettings(BaseSettings):
     slow_query_threshold_ms: float = Field(default=250.0, gt=0)
     log_query_parameters: bool = False
 
-    @field_validator("application_name", "cache_namespace")
+    observability_enabled: bool = False
+    telemetry_namespace: str = "prodkit.storage"
+    otel_service_name: str | None = None
+    otel_sqlalchemy_instrumentation: bool = True
+    otel_redis_instrumentation: bool = True
+    otel_sqlcommenter: bool = False
+    otel_include_query_text: bool = False
+
+    @field_validator(
+        "application_name",
+        "service_name",
+        "cache_namespace",
+        "telemetry_namespace",
+    )
     @classmethod
     def _non_empty(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError("must not be empty")
         return value
+
+    @field_validator("instance_id")
+    @classmethod
+    def _normalize_instance_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("rls_tenant_setting", "rls_actor_setting", "rls_request_setting")
     @classmethod
@@ -189,6 +216,24 @@ class StorageSettings(BaseSettings):
             raise ConfigurationError("cursor_signing_secret must contain at least 32 bytes")
         return secret
 
+    def client_name(self, component: str, *, max_length: int = 63) -> str:
+        """Build a stable process/component identity for PostgreSQL and Redis."""
+
+        component = component.strip().replace("_", "-")
+        if not component:
+            raise ValueError("component must not be empty")
+        parts = [self.application_name, self.process_type, component]
+        if self.instance_id:
+            parts.append(self.instance_id)
+        raw = "-".join(parts)
+        if len(raw) <= max_length:
+            return raw
+        digest = hashlib.sha256(raw.encode()).hexdigest()[:8]
+        return f"{raw[: max_length - len(digest) - 1]}-{digest}"
+
 
 def _with_driver(url: URL, drivername: str) -> URL:
     return url.set(drivername=drivername)
+
+
+__all__ = ["IsolationLevel", "ProcessType", "StorageSettings"]

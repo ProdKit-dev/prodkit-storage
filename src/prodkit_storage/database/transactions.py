@@ -8,20 +8,12 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, sessionmaker
 
+from prodkit_storage.database.errors import is_retryable_database_error
+
 T = TypeVar("T")
-_RETRYABLE_SQLSTATES = frozenset({"40001", "40P01"})
-
-
-def is_retryable_database_error(error: BaseException) -> bool:
-    if not isinstance(error, (DBAPIError, OperationalError)):
-        return False
-    original = getattr(error, "orig", None)
-    sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
-    return sqlstate in _RETRYABLE_SQLSTATES
 
 
 def run_sync_transaction(

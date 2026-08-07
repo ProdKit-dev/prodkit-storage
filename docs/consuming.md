@@ -5,28 +5,28 @@
 With [uv](https://github.com/astral-sh/uv):
 
 ```bash
-uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.1.0"
+uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0"
 ```
 
 Or in `pyproject.toml`:
 
 ```toml
 dependencies = [
-  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.1.0",
+  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0",
 ]
 ```
 
 Optional extras:
 
 ```bash
-uv add "prodkit-storage[shapes,observability] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.1.0"
+uv add "prodkit-storage[shapes,observability] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0"
 ```
 
 Private clone over SSH:
 
 ```toml
 dependencies = [
-  "prodkit-storage @ git+ssh://git@github.com/ProdKit-dev/prodkit-storage.git@v0.1.0",
+  "prodkit-storage @ git+ssh://git@github.com/ProdKit-dev/prodkit-storage.git@v0.2.0",
 ]
 ```
 
