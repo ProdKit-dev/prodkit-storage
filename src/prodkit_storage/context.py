@@ -17,14 +17,14 @@ class RequestContext:
     trace_id: str | None = None
 
 
-_current_context: ContextVar[RequestContext] = ContextVar(
+_current_context: ContextVar[RequestContext | None] = ContextVar(
     "prodkit_storage_request_context",
-    default=RequestContext(),
+    default=None,
 )
 
 
 def get_request_context() -> RequestContext:
-    return _current_context.get()
+    return _current_context.get() or RequestContext()
 
 
 def get_tenant_id() -> UUID | None:
@@ -33,7 +33,7 @@ def get_tenant_id() -> UUID | None:
 
 @contextmanager
 def request_context(context: RequestContext) -> Iterator[RequestContext]:
-    token: Token[RequestContext] = _current_context.set(context)
+    token: Token[RequestContext | None] = _current_context.set(context)
     try:
         yield context
     finally:
