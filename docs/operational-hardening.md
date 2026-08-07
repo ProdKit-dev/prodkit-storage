@@ -33,6 +33,41 @@ migration_safety_allow = {"destructive-change"}
 
 A waiver makes the decision auditable; it does not make the operation safe.
 
+### Staged PostgreSQL migration helpers
+
+`prodkit_storage.database` also exposes reviewed building blocks for the common safe
+path:
+
+- `create_index_concurrently()` — wraps the required Alembic autocommit block;
+- `add_check_constraint_not_valid()` — installs a CHECK without scanning old rows;
+- `add_foreign_key_not_valid()` — installs an FK without immediate old-row validation;
+- `validate_constraint()` — validates a deferred constraint separately;
+- `enforce_not_null()` — validates a temporary `IS NOT NULL` check before applying
+  `SET NOT NULL`, avoiding a second full-table validation scan on supported PostgreSQL.
+
+Destructive contract helpers are deliberately **not** provided: dropping an old column,
+table, constraint, or index should remain visible in the revision so the safety linter
+can require a reviewed waiver.
+
+## Resumable backfills
+
+`run_batched_backfill_sync()` and `run_batched_backfill_async()` execute one bounded
+batch per transaction. The application supplies checkpoint load/save callbacks plus the
+batch processor; the mutation and checkpoint advance happen in the same database
+transaction.
+
+That means an exception or process interruption rolls back both the current batch and
+its checkpoint, while earlier batches remain committed and resumable. `max_batches`
+lets a scheduler deliberately cap work per invocation.
+
+The CI integration suite simulates interruption after a partially executed batch and
+proves the batch rolls back, the prior checkpoint remains stable, and a later worker
+resumes to completion without skipping rows.
+
+The checkpoint must live in the **same transactional database** as the backfilled data
+for the atomicity guarantee to hold. External checkpoint stores need their own delivery
+and reconciliation design.
+
 ## Runtime schema compatibility
 
 The package exposes an explicit schema contract:
@@ -84,7 +119,7 @@ binaries so an older runner client cannot silently invalidate the exercise.
 This is a logical-restore smoke test, not a replacement for managed-provider PITR,
 WAL/archive verification, encryption validation, or measured RPO/RTO drills.
 
-## Saturation smoke
+## Load and failure smoke tests
 
 `ops/load/storage_smoke.py` executes concurrent PostgreSQL pool checkouts/queries and
 Redis commands, reports p50/p95/p99 latency, and fails on errors or configured p95
@@ -98,9 +133,14 @@ uv run python ops/load/storage_smoke.py \
   --redis-p95-ms 200
 ```
 
-CI intentionally uses generous thresholds to catch broken pooling/network behavior,
-not to claim benchmark-grade performance. Real capacity planning must use production-
-representative query shapes, data volumes, network topology, and concurrency.
+`ops/failure/dependency_failure_smoke.py` points short-timeout PostgreSQL and Redis
+clients at deliberately unused local ports and verifies both health paths report a
+visible failure promptly instead of hanging or incorrectly returning healthy.
+
+CI intentionally uses generous latency thresholds to catch broken pooling/network
+behavior, not to claim benchmark-grade performance. Real capacity and failure planning
+must use production-representative query shapes, data volumes, network topology,
+concurrency, failovers, and downstream dependencies.
 
 ## Dashboards, alerts, and runbooks
 
