@@ -5,6 +5,7 @@ ProdKit Storage. They are intentionally separate from the Python runtime package
 
 - `backup/verify_postgres_backup.py` — logical backup/restore verification.
 - `load/storage_smoke.py` — concurrent PostgreSQL/Redis saturation smoke.
+- `failure/dependency_failure_smoke.py` — bounded unavailable-dependency failure smoke.
 - `prometheus/prodkit-storage-alerts.yml` — starter Prometheus alert rules.
 - `grafana/prodkit-storage-dashboard.json` — starter Grafana dashboard.
 - `terraform/README.md` — provider-neutral infrastructure contract.
