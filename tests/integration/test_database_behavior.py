@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
 
 import pytest
 from sqlalchemy import DateTime, ForeignKey, Integer, String, delete, select, text
@@ -33,7 +32,10 @@ class Parent(IntegrationBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    children: Mapped[list[Child]] = relationship(back_populates="parent", cascade="all, delete-orphan")
+    children: Mapped[list[Child]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
 
 
 class Child(IntegrationBase):
