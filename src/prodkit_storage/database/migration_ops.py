@@ -1,7 +1,8 @@
 """Alembic helpers for staged PostgreSQL schema changes.
 
 These helpers make the preferred operational patterns easy to reuse while
-leaving migration intent explicit in each revision.
+leaving destructive contract operations explicit in each revision so the
+migration safety linter can require a visible waiver.
 """
 
 from __future__ import annotations
@@ -32,24 +33,6 @@ def create_index_concurrently(
             list(columns),
             schema=schema,
             unique=unique,
-            postgresql_concurrently=True,
-        )
-
-
-def drop_index_concurrently(
-    operations: Operations,
-    name: str,
-    *,
-    table_name: str | None = None,
-    schema: str | None = None,
-) -> None:
-    """Drop an index concurrently outside Alembic's normal transaction."""
-
-    with operations.get_context().autocommit_block():
-        operations.drop_index(
-            operations.f(name),
-            table_name=table_name,
-            schema=schema,
             postgresql_concurrently=True,
         )
 
@@ -166,7 +149,6 @@ __all__ = [
     "add_check_constraint_not_valid",
     "add_foreign_key_not_valid",
     "create_index_concurrently",
-    "drop_index_concurrently",
     "enforce_not_null",
     "validate_constraint",
 ]
