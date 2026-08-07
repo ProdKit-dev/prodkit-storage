@@ -44,10 +44,16 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
+      - name: Generate expected lockfile
+        run: uv lock
+      - name: Upload expected lockfile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prodkit-storage-expected-lock
+          path: uv.lock
+          if-no-files-found: error
       - name: Verify lockfile is current
-        run: |
-          uv lock
-          git diff --exit-code -- uv.lock
+        run: git diff --exit-code -- uv.lock
       - run: uv sync --all-extras --locked
       - name: Bootstrap privileged PostgreSQL extensions
         run: |
