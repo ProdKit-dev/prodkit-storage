@@ -59,7 +59,7 @@ def downgrade() -> None:
     schema = _schema()
     table = "storage_outbox_events"
     op.drop_constraint(
-        "ck_storage_outbox_events_processing_has_lock_token",
+        op.f("ck_storage_outbox_events_processing_has_lock_token"),
         table,
         type_="check",
         schema=schema,
