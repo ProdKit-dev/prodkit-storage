@@ -66,7 +66,10 @@ def _schema_check_sync(settings: StorageSettings) -> int:
     database = SyncDatabase(settings)
     try:
         with database.session() as session:
-            report = check_schema_compatibility_sync(session)
+            report = check_schema_compatibility_sync(
+                session,
+                schema=settings.database_schema,
+            )
     finally:
         database.dispose()
     print(json.dumps(asdict(report), indent=2, default=str))
@@ -77,7 +80,10 @@ async def _schema_check_async(settings: StorageSettings) -> int:
     database = AsyncDatabase(settings)
     try:
         async with database.session() as session:
-            report = await check_schema_compatibility_async(session)
+            report = await check_schema_compatibility_async(
+                session,
+                schema=settings.database_schema,
+            )
     finally:
         await database.dispose()
     print(json.dumps(asdict(report), indent=2, default=str))
