@@ -86,7 +86,10 @@ privileges apply consistently.
 After migrations, apply the reviewed output of
 `render_post_migration_grants_sql`. It grants normal runtime DML for application
 tables while making `storage_audit_events` append-only for the runtime role and
-withholding outbox deletion from the runtime role.
+withholding outbox deletion from the runtime role. The runtime receives column-
+level `SELECT` only on `storage_audit_events.occurred_at` so PostgreSQL can satisfy
+SQLAlchemy's `INSERT ... RETURNING` for that server-generated timestamp; audit
+payload/history columns remain unreadable to the runtime role.
 
 The runtime role must not own RLS-protected tables and must not have
 `BYPASSRLS`. `verify_rls_sync` and `verify_rls_async` check deployed role and
