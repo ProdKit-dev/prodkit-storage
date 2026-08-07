@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a reusable capability for the ProdKit Storage foundation
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ProdKit Storage intentionally stays small. Explain the shared storage problem first, not only the desired API.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete storage, correctness, security, compatibility, or operations problem is unsolved?
+    validations:
+      required: true
+  - type: textarea
+    id: consumers
+    attributes:
+      label: Shared need
+      description: Which applications or usage patterns need this? Why does it belong in the reusable package rather than one application?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed capability
+      description: Describe the smallest useful public behavior or API, including sync/async expectations where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain application-level solutions, existing SQLAlchemy/Redis/PostgreSQL features, or simpler approaches considered.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and operational impact
+      description: Note migration, performance, security, deployment, deprecation, or public-API implications.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and documentation.
+          required: true
+        - label: The proposal is reusable and not product-specific business logic.
+          required: true
