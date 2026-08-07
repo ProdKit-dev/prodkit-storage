@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from sqlalchemy import Column, MetaData, String, Table, select, text
+from sqlalchemy import Column, MetaData, Select, String, Table, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -98,7 +98,7 @@ def evaluate_schema_revisions(
     )
 
 
-def _version_statement(schema: str):
+def _version_statement(schema: str) -> Select[tuple[str]]:
     metadata = MetaData()
     version_table = Table(
         STORAGE_ALEMBIC_VERSION_TABLE,
