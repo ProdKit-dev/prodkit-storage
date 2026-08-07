@@ -56,7 +56,18 @@ jobs:
                   connection.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
           PY
       - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      - name: Check Ruff formatting
+        run: |
+          set -o pipefail
+          uv run ruff format --diff . | tee /tmp/ruff-format.diff
+          test ! -s /tmp/ruff-format.diff
+      - name: Upload Ruff formatter diff
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prodkit-storage-ruff-format
+          path: /tmp/ruff-format.diff
+          if-no-files-found: warn
       - run: uv run mypy
       - run: uv run alembic upgrade head --sql > /tmp/migration.sql
       - name: Apply migrations
@@ -83,7 +94,7 @@ jobs:
         with:
           name: prodkit-storage-alembic-check
           path: /tmp/alembic-check.log
-          if-no-files-found: error
+          if-no-files-found: warn
       - run: uv run pytest --cov --cov-report=term-missing
       - name: Verify one-step downgrade and roll-forward
         run: |
