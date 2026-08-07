@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ProdKit-dev/prodkit-storage/security/policy
+    about: Report suspected vulnerabilities through the private security process, not a public issue.
+  - name: Support guidance
+    url: https://github.com/ProdKit-dev/prodkit-storage/blob/main/SUPPORT.md
+    about: Read the support policy before opening a usage or troubleshooting issue.

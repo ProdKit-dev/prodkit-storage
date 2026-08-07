@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible defect or regression in ProdKit Storage
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include credentials, private data, or vulnerability details. Security issues must follow SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: ProdKit Storage version
+      description: Use an exact tag/version or commit SHA.
+      placeholder: v0.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Python, OS, PostgreSQL/PostGIS, Redis, SQLAlchemy, and deployment details that affect reproduction.
+      placeholder: Python 3.12; PostgreSQL 18/PostGIS 3.6; Redis 8; Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest safe code/configuration and exact steps that reproduce the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or traceback
+      description: Remove credentials, connection strings, customer data, tokens, and other secrets.
+      render: text
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and workaround
+      description: Explain severity, affected workflows, data-risk implications, and any known workaround.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This is not a security vulnerability requiring private disclosure.
+          required: true
+        - label: I removed secrets and private data from this report.
+          required: true
