@@ -73,6 +73,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "S", "C4"]
 # Patch releases should not rewrite stable generic APIs solely for modernization/style.
 ignore = [
+  "B009",
   "I001",
   "RUF012",
   "RUF022",
