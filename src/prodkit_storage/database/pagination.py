@@ -167,7 +167,7 @@ def paginate_sync(
             limit=limit,
             query_fingerprint=query_fingerprint,
         )
-        rows = list(session.scalars(query).all())
+        rows = list(_unique_scalars(session.scalars(query)))
         return _build_sorted_page(
             rows,
             sort=sort,
@@ -186,7 +186,7 @@ def paginate_sync(
         limit=limit,
         direction=direction,
     )
-    rows = list(session.scalars(query).all())
+    rows = list(_unique_scalars(session.scalars(query)))
     return _build_legacy_page(
         rows,
         order_column=order_column,
@@ -471,11 +471,7 @@ def _offset_page(
     total_count: int | None,
     has_next_page: bool,
 ) -> OffsetPage[T]:
-    total_pages = (
-        math.ceil(total_count / limit)
-        if total_count is not None
-        else None
-    )
+    total_pages = math.ceil(total_count / limit) if total_count is not None else None
     return OffsetPage(
         items=items,
         page=page,
