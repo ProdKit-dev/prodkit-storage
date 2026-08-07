@@ -7,12 +7,13 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, delete, select, te
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import DeclarativeBase, Mapped, joinedload, mapped_column, relationship
 
+from prodkit_storage.audit import record_audit_event
 from prodkit_storage.config import StorageSettings
 from prodkit_storage.database.pagination import CursorCodec, paginate_sync
 from prodkit_storage.database.runtime import SyncDatabase
 from prodkit_storage.database.sorting import SortRegistry
 from prodkit_storage.exceptions import OutboxLeaseLostError
-from prodkit_storage.models import OutboxEvent
+from prodkit_storage.models import AuditEvent, OutboxEvent
 from prodkit_storage.outbox import (
     claim_outbox_events,
     complete_outbox_event,
@@ -66,6 +67,49 @@ def test_read_only_transaction_rejects_writes() -> None:
                     )
                 )
     finally:
+        database.dispose()
+
+
+def test_append_only_audit_role_can_insert_but_not_read_payload() -> None:
+    database = SyncDatabase(_settings())
+    role = "prodkit_ci_audit_runtime"
+    try:
+        with database.write_engine.connect().execution_options(
+            isolation_level="AUTOCOMMIT"
+        ) as connection:
+            connection.exec_driver_sql(
+                f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') "
+                f"THEN CREATE ROLE {role} NOLOGIN; END IF; END $$;"
+            )
+            connection.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {role}")
+            connection.exec_driver_sql(
+                f"GRANT INSERT ON TABLE public.storage_audit_events TO {role}"
+            )
+            connection.exec_driver_sql(
+                f"GRANT SELECT (occurred_at) ON TABLE public.storage_audit_events TO {role}"
+            )
+
+        with database.transaction() as session:
+            session.execute(text(f"SET LOCAL ROLE {role}"))
+            event = record_audit_event(
+                session,
+                action="integration.audit",
+                entity_type="test",
+                after={"secret": "redacted-by-policy"},
+            )
+            session.flush()
+            assert event.occurred_at is not None
+
+        with pytest.raises(DBAPIError):
+            with database.transaction() as session:
+                session.execute(text(f"SET LOCAL ROLE {role}"))
+                session.execute(select(AuditEvent.action)).all()
+    finally:
+        with database.write_engine.connect().execution_options(
+            isolation_level="AUTOCOMMIT"
+        ) as connection:
+            connection.exec_driver_sql(f"DROP OWNED BY {role}")
+            connection.exec_driver_sql(f"DROP ROLE IF EXISTS {role}")
         database.dispose()
 
 
