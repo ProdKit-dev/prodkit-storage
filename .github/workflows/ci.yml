@@ -83,7 +83,17 @@ jobs:
           name: prodkit-storage-alembic-check
           path: /tmp/alembic-check.log
           if-no-files-found: warn
-      - run: uv run pytest --cov --cov-report=term-missing
+      - name: Run tests
+        run: |
+          set -o pipefail
+          uv run pytest --cov --cov-report=term-missing 2>&1 | tee /tmp/pytest.log
+      - name: Upload pytest report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prodkit-storage-pytest
+          path: /tmp/pytest.log
+          if-no-files-found: warn
       - name: Verify one-step downgrade and roll-forward
         run: |
           uv run alembic downgrade -1
