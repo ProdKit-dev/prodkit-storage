@@ -2,6 +2,10 @@
 
 The checkpoint callback and batch mutation run in the same database transaction,
 so a failed batch rolls back both application changes and checkpoint advancement.
+
+The generic runner does not serialize multiple workers by itself. Execute one
+worker per backfill job, or make ``load_checkpoint`` acquire a row/advisory lock
+that is held for the batch transaction before allowing concurrent workers.
 """
 
 from __future__ import annotations
@@ -54,7 +58,11 @@ def run_batched_backfill_sync(
     batch_size: int = 1_000,
     max_batches: int | None = None,
 ) -> BackfillRun[CursorT]:
-    """Run bounded transactions until the backfill completes or the batch limit is hit."""
+    """Run bounded transactions until complete or the batch limit is hit.
+
+    The caller must serialize workers for one logical backfill job, or make the
+    checkpoint loader acquire a transaction-scoped lock before returning.
+    """
 
     _validate_options(batch_size, max_batches)
     batches = 0
@@ -92,7 +100,7 @@ async def run_batched_backfill_async(
     batch_size: int = 1_000,
     max_batches: int | None = None,
 ) -> BackfillRun[CursorT]:
-    """Async equivalent of :func:`run_batched_backfill_sync`."""
+    """Async equivalent of :func:`run_batched_backfill_sync` with the same lock contract."""
 
     _validate_options(batch_size, max_batches)
     batches = 0
