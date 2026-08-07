@@ -57,15 +57,15 @@ def test_concurrent_index_and_deferred_constraint_helpers() -> None:
                 {"table": _TABLE, "index": _INDEX},
             ) == 1
 
+        with database.write_engine.begin() as connection:
             context = MigrationContext.configure(connection)
             operations = Operations(context)
-            with context.begin_transaction():
-                add_check_constraint_not_valid(
-                    operations,
-                    _CHECK,
-                    _TABLE,
-                    "value > 0",
-                )
+            add_check_constraint_not_valid(
+                operations,
+                _CHECK,
+                _TABLE,
+                "value > 0",
+            )
 
         with database.write_engine.connect() as connection:
             assert connection.scalar(
@@ -75,10 +75,11 @@ def test_concurrent_index_and_deferred_constraint_helpers() -> None:
                 ),
                 {"name": _CHECK},
             ) is False
+
+        with database.write_engine.begin() as connection:
             context = MigrationContext.configure(connection)
             operations = Operations(context)
-            with context.begin_transaction():
-                validate_constraint(operations, _TABLE, _CHECK)
+            validate_constraint(operations, _TABLE, _CHECK)
 
         with database.write_engine.connect() as connection:
             assert connection.scalar(
@@ -102,11 +103,10 @@ def test_enforce_not_null_uses_validated_check_path() -> None:
             connection.exec_driver_sql(_CREATE_TABLE)
             connection.exec_driver_sql(_INSERT_ROWS)
 
-        with database.write_engine.connect() as connection:
+        with database.write_engine.begin() as connection:
             context = MigrationContext.configure(connection)
             operations = Operations(context)
-            with context.begin_transaction():
-                enforce_not_null(operations, _TABLE, "value")
+            enforce_not_null(operations, _TABLE, "value")
 
         with database.write_engine.connect() as connection:
             assert connection.scalar(
