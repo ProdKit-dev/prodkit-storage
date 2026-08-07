@@ -44,7 +44,11 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
-      - run: uv sync --all-extras
+      - name: Verify lockfile is current
+        run: |
+          uv lock
+          git diff --exit-code -- uv.lock
+      - run: uv sync --all-extras --locked
       - name: Bootstrap privileged PostgreSQL extensions
         run: |
           uv run python - <<'PY'
@@ -96,8 +100,10 @@ jobs:
             uv run alembic history --verbose
             echo "=== CLI current ==="
             uv run prodkit-storage current
-            echo "=== schema compatibility ==="
+            echo "=== schema compatibility (sync) ==="
             uv run prodkit-storage schema-check
+            echo "=== schema compatibility (async) ==="
+            uv run prodkit-storage schema-check --async
           } | tee /tmp/alembic-check.log
       - name: Check Alembic metadata drift
         run: |
@@ -135,6 +141,8 @@ jobs:
             --concurrency 8 \
             --database-p95-ms 1000 \
             --redis-p95-ms 500
+      - name: Verify dependency failures are visible and bounded
+        run: uv run python ops/failure/dependency_failure_smoke.py
       - name: Verify one-step downgrade and roll-forward
         run: |
           uv run alembic downgrade -1
@@ -142,6 +150,7 @@ jobs:
           uv run alembic current
           uv run alembic check
           uv run prodkit-storage schema-check
+          uv run prodkit-storage schema-check --async
 
   security:
     runs-on: ubuntu-latest
@@ -150,7 +159,7 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
-      - run: uv sync --all-extras
+      - run: uv sync --all-extras --locked
       - name: Audit Python dependencies
         run: uv run pip-audit
       - name: Build image
