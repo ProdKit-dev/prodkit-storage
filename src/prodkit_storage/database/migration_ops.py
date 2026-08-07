@@ -3,6 +3,11 @@
 These helpers make the preferred operational patterns easy to reuse while
 leaving destructive contract operations explicit in each revision so the
 migration safety linter can require a visible waiver.
+
+A PostgreSQL concurrent-index operation requires Alembic's ``autocommit_block``.
+Alembic commits the transaction preceding that block, so concurrent index work
+should normally live in a dedicated revision rather than being mixed with other
+schema mutations that callers expect to be atomic with it.
 """
 
 from __future__ import annotations
@@ -22,7 +27,11 @@ def create_index_concurrently(
     schema: str | None = None,
     unique: bool = False,
 ) -> None:
-    """Create an index concurrently outside Alembic's normal transaction."""
+    """Create an index concurrently outside Alembic's normal transaction.
+
+    Put this operation in a dedicated migration revision whenever possible:
+    entering ``autocommit_block()`` commits any transaction that precedes it.
+    """
 
     if not columns:
         raise ValueError("at least one index column is required")
