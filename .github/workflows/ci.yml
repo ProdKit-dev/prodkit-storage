@@ -58,13 +58,20 @@ jobs:
       - run: uv run ruff check .
       - run: uv run mypy
       - run: uv run alembic upgrade head --sql > /tmp/migration.sql
-      - run: uv run prodkit-storage upgrade head
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+      - name: Verify migration revision and CLI wrapper
+        run: |
+          uv run alembic current --verbose
+          uv run alembic heads --verbose
+          uv run prodkit-storage current
       - run: uv run alembic check
       - run: uv run pytest --cov --cov-report=term-missing
       - name: Verify one-step downgrade and roll-forward
         run: |
           uv run alembic downgrade -1
           uv run alembic upgrade head
+          uv run alembic current
           uv run alembic check
 
   security:
