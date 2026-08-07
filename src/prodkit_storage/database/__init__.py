@@ -1,3 +1,9 @@
+from prodkit_storage.database.backfill import (
+    BackfillBatch,
+    BackfillRun,
+    run_batched_backfill_async,
+    run_batched_backfill_sync,
+)
 from prodkit_storage.database.base import (
     Base,
     ExternalIdMixin,
@@ -24,6 +30,13 @@ from prodkit_storage.database.filtering import (
     FilterRegistry,
     FilterTerm,
 )
+from prodkit_storage.database.migration_ops import (
+    add_check_constraint_not_valid,
+    add_foreign_key_not_valid,
+    create_index_concurrently,
+    enforce_not_null,
+    validate_constraint,
+)
 from prodkit_storage.database.migration_safety import (
     MigrationSafetyError,
     MigrationSafetyIssue,
@@ -47,6 +60,7 @@ from prodkit_storage.database.repository import AsyncRepository, RowLock, SyncRe
 from prodkit_storage.database.runtime import AsyncDatabase, SyncDatabase
 from prodkit_storage.database.schema_compatibility import (
     DEFAULT_SCHEMA_POLICY,
+    STORAGE_ALEMBIC_VERSION_TABLE,
     STORAGE_SCHEMA_COMPATIBILITY_VERSION,
     STORAGE_SCHEMA_HEAD,
     SchemaCompatibilityError,
@@ -86,6 +100,8 @@ __all__ = [
     "AsyncRepository",
     "AsyncUnitOfWork",
     "AsyncWriteSession",
+    "BackfillBatch",
+    "BackfillRun",
     "Base",
     "CursorCodec",
     "CursorPage",
@@ -107,6 +123,7 @@ __all__ = [
     "OptionalTenantMixin",
     "PostgreSQLErrorCode",
     "RowLock",
+    "STORAGE_ALEMBIC_VERSION_TABLE",
     "STORAGE_SCHEMA_COMPATIBILITY_VERSION",
     "STORAGE_SCHEMA_HEAD",
     "SchemaCompatibilityError",
@@ -128,9 +145,13 @@ __all__ = [
     "TenantMixin",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
+    "add_check_constraint_not_valid",
+    "add_foreign_key_not_valid",
     "assert_migration_file_safe",
     "check_schema_compatibility_async",
     "check_schema_compatibility_sync",
+    "create_index_concurrently",
+    "enforce_not_null",
     "evaluate_schema_revisions",
     "get_sqlstate",
     "inspect_migration_file",
@@ -148,4 +169,7 @@ __all__ = [
     "postgres_enum_type",
     "require_schema_compatible_async",
     "require_schema_compatible_sync",
+    "run_batched_backfill_async",
+    "run_batched_backfill_sync",
+    "validate_constraint",
 ]
