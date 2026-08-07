@@ -1,4 +1,4 @@
-"""Audit event creation helpers."""
+"""Audit event creation helpers with classification and redaction."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from prodkit_storage.context import get_request_context
 from prodkit_storage.models.audit import AuditEvent
+from prodkit_storage.security.audit import AuditPolicy, DEFAULT_AUDIT_POLICY
 
 
 def record_audit_event(
@@ -23,6 +24,7 @@ def record_audit_event(
     metadata: dict[str, Any] | None = None,
     source_ip: str | None = None,
     user_agent: str | None = None,
+    policy: AuditPolicy | None = DEFAULT_AUDIT_POLICY,
 ) -> AuditEvent:
     event = _build_event(
         action=action,
@@ -34,6 +36,7 @@ def record_audit_event(
         metadata=metadata,
         source_ip=source_ip,
         user_agent=user_agent,
+        policy=policy,
     )
     session.add(event)
     return event
@@ -59,8 +62,19 @@ def _build_event(
     metadata: dict[str, Any] | None = None,
     source_ip: str | None = None,
     user_agent: str | None = None,
+    policy: AuditPolicy | None = DEFAULT_AUDIT_POLICY,
 ) -> AuditEvent:
     context = get_request_context()
+    sanitize = policy.sanitize if policy is not None else _identity
+    sanitized_before = sanitize(before) if before is not None else None
+    sanitized_after = sanitize(after) if after is not None else None
+    sanitized_metadata = sanitize(metadata or {})
+    if not isinstance(sanitized_before, (dict, type(None))):
+        raise TypeError("sanitized audit before payload must be an object or null")
+    if not isinstance(sanitized_after, (dict, type(None))):
+        raise TypeError("sanitized audit after payload must be an object or null")
+    if not isinstance(sanitized_metadata, dict):
+        raise TypeError("sanitized audit metadata must be an object")
     return AuditEvent(
         tenant_id=context.tenant_id,
         actor_id=context.actor_id,
@@ -72,7 +86,14 @@ def _build_event(
         trace_id=context.trace_id,
         source_ip=source_ip,
         user_agent=user_agent,
-        before=before,
-        after=after,
-        metadata_=metadata or {},
+        before=sanitized_before,
+        after=sanitized_after,
+        metadata_=sanitized_metadata,
     )
+
+
+def _identity(value: Any) -> Any:
+    return value
+
+
+__all__ = ["record_audit_event", "record_audit_event_async"]

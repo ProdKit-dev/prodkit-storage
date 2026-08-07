@@ -11,7 +11,7 @@ name = "myapp"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.1.0",
+  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0",
   # "fastapi", "uvicorn", ... your app stack
 ]
 ```
@@ -19,7 +19,7 @@ dependencies = [
 Install:
 
 ```bash
-uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.1.0"
+uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0"
 ```
 
 ## 2. Environment
@@ -60,7 +60,7 @@ redis = AsyncRedis(settings)
 
 ## 5. Boundary checklist
 
-- [ ] Pin is a **tag** (`@v0.1.0`), not `main`
+- [ ] Pin is a **tag** (`@v0.2.0`), not `main`
 - [ ] Product tables/models are in the app, not in `prodkit-storage`
 - [ ] App owns product migrations
 - [ ] Managed Postgres/Redis are deployment concerns of the app

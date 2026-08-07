@@ -21,6 +21,15 @@ class RepositoryCustomer(UUIDPrimaryKeyMixin, SoftDeleteMixin, Base):
 class Result:
     rowcount = 2
 
+    def __init__(self, value: Any = None) -> None:
+        self.value = value
+
+    def unique(self) -> Result:
+        return self
+
+    def scalar_one_or_none(self) -> Any:
+        return self.value
+
 
 class ScalarCollection:
     def __init__(self, values: list[Any]) -> None:
@@ -57,6 +66,8 @@ class RepositorySession:
 
     def execute(self, statement: Any) -> Result:
         self.statements.append(statement)
+        if getattr(statement, "is_select", False):
+            return Result(self.scalar_values.pop(0))
         return Result()
 
 

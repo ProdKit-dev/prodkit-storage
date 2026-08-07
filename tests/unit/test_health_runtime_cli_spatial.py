@@ -385,7 +385,8 @@ def test_spatial_expression_factories() -> None:
     geography_type = geography("POINT")
     assert point_type.geometry_type == "POINT"
     assert point_type.nullable is False
-    assert geometry_type.geometry_type == "POLYGON"
+    # GeoAlchemy2 encodes 3D via a Z suffix (POLYGONZ) and dimension=3.
+    assert geometry_type.geometry_type in {"POLYGON", "POLYGONZ"}
     assert geometry_type.dimension == 3
     assert geography_type.geometry_type == "POINT"
 

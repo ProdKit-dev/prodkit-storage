@@ -8,20 +8,102 @@ from prodkit_storage.database.base import (
     TimestampMixin,
     UUIDPrimaryKeyMixin,
 )
+from prodkit_storage.database.errors import (
+    PostgreSQLErrorCode,
+    get_sqlstate,
+    is_deadlock,
+    is_lock_not_available,
+    is_retryable_database_error,
+    is_serialization_failure,
+    is_statement_timeout,
+    is_unique_violation,
+)
+from prodkit_storage.database.filtering import (
+    FilterField,
+    FilterOperator,
+    FilterRegistry,
+    FilterTerm,
+)
+from prodkit_storage.database.pagination import (
+    CursorCodec,
+    CursorPage,
+    CursorState,
+    OffsetPage,
+    paginate_async,
+    paginate_offset_async,
+    paginate_offset_sync,
+    paginate_sync,
+)
+from prodkit_storage.database.repository import AsyncRepository, RowLock, SyncRepository
 from prodkit_storage.database.runtime import AsyncDatabase, SyncDatabase
+from prodkit_storage.database.sessions import (
+    AsyncReadSession,
+    AsyncWriteSession,
+    SyncReadSession,
+    SyncWriteSession,
+)
+from prodkit_storage.database.sorting import (
+    NullPlacement,
+    SortDirection,
+    SortField,
+    SortPlan,
+    SortRegistry,
+    SortTerm,
+)
+from prodkit_storage.database.types import (
+    IntegerEnumType,
+    StringEnumType,
+    postgres_enum_type,
+)
 from prodkit_storage.database.uow import AsyncUnitOfWork, SyncUnitOfWork
 
 __all__ = [
     "AsyncDatabase",
+    "AsyncReadSession",
+    "AsyncRepository",
     "AsyncUnitOfWork",
+    "AsyncWriteSession",
     "Base",
+    "CursorCodec",
+    "CursorPage",
+    "CursorState",
     "ExternalIdMixin",
+    "FilterField",
+    "FilterOperator",
+    "FilterRegistry",
+    "FilterTerm",
+    "IntegerEnumType",
+    "NullPlacement",
+    "OffsetPage",
     "OptimisticLockMixin",
     "OptionalTenantMixin",
+    "PostgreSQLErrorCode",
+    "RowLock",
     "SoftDeleteMixin",
+    "SortDirection",
+    "SortField",
+    "SortPlan",
+    "SortRegistry",
+    "SortTerm",
+    "StringEnumType",
     "SyncDatabase",
+    "SyncReadSession",
+    "SyncRepository",
     "SyncUnitOfWork",
+    "SyncWriteSession",
     "TenantMixin",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
+    "get_sqlstate",
+    "is_deadlock",
+    "is_lock_not_available",
+    "is_retryable_database_error",
+    "is_serialization_failure",
+    "is_statement_timeout",
+    "is_unique_violation",
+    "paginate_async",
+    "paginate_offset_async",
+    "paginate_offset_sync",
+    "paginate_sync",
+    "postgres_enum_type",
 ]
