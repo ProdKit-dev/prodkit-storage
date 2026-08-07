@@ -22,7 +22,7 @@ IsolationLevel = Literal[
 ]
 ProcessType = Literal["app", "worker", "scheduler", "script", "migration", "test"]
 DeploymentEnvironment = Literal["development", "test", "staging", "production"]
-_INSECURE_CURSOR_SECRET = "replace-this-development-only-secret"
+_INSECURE_CURSOR_SECRET = "replace-this-development-only-secret"  # noqa: S105
 _POSTGRES_IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*")
 _CUSTOM_SETTING = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 _MODEL_MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
@@ -190,11 +190,13 @@ class StorageSettings(BaseSettings):
             if parsed.get_backend_name() != "postgresql":
                 raise ValueError("all database URLs must use PostgreSQL")
 
-        if self.environment in {"staging", "production"}:
-            if self.cursor_signing_secret.get_secret_value() == _INSECURE_CURSOR_SECRET:
-                raise ValueError(
-                    "cursor_signing_secret must be explicitly configured in staging/production"
-                )
+        if (
+            self.environment in {"staging", "production"}
+            and self.cursor_signing_secret.get_secret_value() == _INSECURE_CURSOR_SECRET
+        ):
+            raise ValueError(
+                "cursor_signing_secret must be explicitly configured in staging/production"
+            )
         return self
 
     @cached_property
