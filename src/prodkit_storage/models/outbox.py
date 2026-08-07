@@ -4,15 +4,26 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from prodkit_storage.database.base import Base, OptionalTenantMixin, UUIDPrimaryKeyMixin
+from prodkit_storage.database.base import (
+    Base,
+    OptimisticLockMixin,
+    OptionalTenantMixin,
+    UUIDPrimaryKeyMixin,
+)
 
 
-class OutboxEvent(UUIDPrimaryKeyMixin, OptionalTenantMixin, Base):
+class OutboxEvent(
+    UUIDPrimaryKeyMixin,
+    OptionalTenantMixin,
+    OptimisticLockMixin,
+    Base,
+):
     __tablename__ = "storage_outbox_events"
     __table_args__ = (
         Index(
@@ -30,6 +41,11 @@ class OutboxEvent(UUIDPrimaryKeyMixin, OptionalTenantMixin, Base):
             name="status",
         ),
         CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
+        CheckConstraint(
+            "(status = 'processing' AND lock_token IS NOT NULL) "
+            "OR (status <> 'processing' AND lock_token IS NULL)",
+            name="processing_has_lock_token",
+        ),
     )
 
     topic: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -56,4 +72,5 @@ class OutboxEvent(UUIDPrimaryKeyMixin, OptionalTenantMixin, Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lock_token: Mapped[UUID | None] = mapped_column(nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
