@@ -3,6 +3,9 @@
 from prodkit_storage.config import StorageSettings
 from prodkit_storage.context import RequestContext, request_context, tenant_context
 from prodkit_storage.database import (
+    DEFAULT_SCHEMA_POLICY,
+    STORAGE_SCHEMA_COMPATIBILITY_VERSION,
+    STORAGE_SCHEMA_HEAD,
     AsyncDatabase,
     AsyncReadSession,
     AsyncUnitOfWork,
@@ -12,6 +15,8 @@ from prodkit_storage.database import (
     FilterRegistry,
     NullPlacement,
     OffsetPage,
+    SchemaCompatibilityPolicy,
+    SchemaCompatibilityReport,
     SortDirection,
     SortField,
     SortRegistry,
@@ -20,6 +25,8 @@ from prodkit_storage.database import (
     SyncReadSession,
     SyncUnitOfWork,
     SyncWriteSession,
+    check_schema_compatibility_async,
+    check_schema_compatibility_sync,
 )
 from prodkit_storage.redis.runtime import AsyncRedis, SyncRedis
 
@@ -31,10 +38,15 @@ __all__ = [
     "AsyncWriteSession",
     "Base",
     "CursorCodec",
+    "DEFAULT_SCHEMA_POLICY",
     "FilterRegistry",
     "NullPlacement",
     "OffsetPage",
     "RequestContext",
+    "STORAGE_SCHEMA_COMPATIBILITY_VERSION",
+    "STORAGE_SCHEMA_HEAD",
+    "SchemaCompatibilityPolicy",
+    "SchemaCompatibilityReport",
     "SortDirection",
     "SortField",
     "SortRegistry",
@@ -45,6 +57,8 @@ __all__ = [
     "SyncRedis",
     "SyncUnitOfWork",
     "SyncWriteSession",
+    "check_schema_compatibility_async",
+    "check_schema_compatibility_sync",
     "request_context",
     "tenant_context",
 ]
