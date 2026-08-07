@@ -68,11 +68,16 @@ def _configure(connection: Connection | None, *, url: str | None = None) -> None
 
 def run_migrations_offline() -> None:
     _configure(None, url=_url())
+    if settings.migration_owner_role is not None:
+        context.execute(f'SET ROLE "{settings.migration_owner_role}"')
+    context.execute(f'SET search_path TO "{settings.database_schema}", public')
     with context.begin_transaction():
         context.run_migrations()
 
 
 def _run_sync_migrations(connection: Connection) -> None:
+    if settings.migration_owner_role is not None:
+        connection.exec_driver_sql(f'SET ROLE "{settings.migration_owner_role}"')
     connection.exec_driver_sql(
         f'SET search_path TO "{settings.database_schema}", public'
     )
