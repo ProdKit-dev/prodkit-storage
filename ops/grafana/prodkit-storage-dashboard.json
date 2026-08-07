@@ -1,0 +1,84 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Database query p95",
+      "id": 1,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(prodkit_storage_db_query_duration_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis command p95",
+      "id": 2,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(prodkit_storage_redis_command_duration_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Database query errors / second",
+      "id": 3,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(prodkit_storage_db_query_errors_total{service_name=~\"$service\"}[5m]))",
+          "legendFormat": "errors/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Transaction rollback ratio",
+      "id": 4,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(prodkit_storage_db_transactions_total{service_name=~\"$service\",outcome=\"rolled_back\"}[10m])) / clamp_min(sum(rate(prodkit_storage_db_transactions_total{service_name=~\"$service\"}[10m])), 0.001)",
+          "legendFormat": "rollback ratio"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 40,
+  "tags": ["prodkit", "storage", "postgresql", "redis"],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "query": "label_values(prodkit_storage_db_transactions_total, service_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 1
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "ProdKit Storage",
+  "uid": "prodkit-storage",
+  "version": 1
+}
