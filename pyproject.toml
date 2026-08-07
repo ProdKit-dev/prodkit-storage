@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prodkit-storage"
-version = "0.2.0"
+version = "0.2.1"
 description = "Production-grade PostgreSQL/PostGIS, SQLAlchemy, Alembic, and Redis foundation for SaaS applications."
 readme = "README.md"
 requires-python = ">=3.12"
