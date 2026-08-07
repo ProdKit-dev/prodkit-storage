@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_DB: prodkit
+          POSTGRES_USER: prodkit
+          POSTGRES_PASSWORD: prodkit
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U prodkit -d prodkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8.8.1-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PRODKIT_STORAGE_ENVIRONMENT: test
+      PRODKIT_STORAGE_DATABASE_URL: postgresql://prodkit:prodkit@127.0.0.1:5432/prodkit
+      PRODKIT_STORAGE_REDIS_URL: redis://127.0.0.1:6379/0
+      PRODKIT_STORAGE_CURSOR_SIGNING_SECRET: ci-secret-at-least-thirty-two-bytes-long
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - name: Bootstrap privileged PostgreSQL extensions
+        run: |
+          uv run python - <<'PY'
+          import psycopg
+
+          with psycopg.connect(
+              "postgresql://prodkit:prodkit@127.0.0.1:5432/prodkit",
+              autocommit=True,
+          ) as connection:
+              for extension in ("postgis", "pgcrypto", "pg_stat_statements"):
+                  connection.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
+          PY
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run alembic upgrade head --sql > /tmp/migration.sql
+      - run: uv run prodkit-storage upgrade head
+      - run: uv run alembic check
+      - run: uv run pytest tests/unit --cov --cov-report=term-missing
+      - run: uv run pytest tests/integration -m integration
+      - name: Verify one-step downgrade and roll-forward
+        run: |
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - name: Audit Python dependencies
+        run: uv run pip-audit
+      - name: Build image
+        run: docker build --tag prodkit-storage:ci .
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: prodkit-storage:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: prodkit-storage:ci
+          format: spdx-json
+          output-file: prodkit-storage.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prodkit-storage-sbom
+          path: prodkit-storage.spdx.json
+          if-no-files-found: error
