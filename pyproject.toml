@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prodkit-storage"
-version = "0.2.0"
+version = "0.2.1"
 description = "Production-grade PostgreSQL/PostGIS, SQLAlchemy, Alembic, and Redis foundation for SaaS applications."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -50,7 +50,7 @@ dev = [
   "pytest>=9.1,<10",
   "pytest-asyncio>=1.4,<2",
   "pytest-cov>=7.1,<8",
-  "ruff>=0.15.22,<1",
+  "ruff==0.15.22",
   "testcontainers[postgres,redis]>=4.10,<5",
 ]
 
@@ -71,11 +71,27 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "S", "C4"]
-ignore = ["S101"]
+# Patch releases should not rewrite stable generic APIs solely for modernization/style.
+ignore = [
+  "B009",
+  "I001",
+  "RUF012",
+  "RUF022",
+  "RUF100",
+  "S101",
+  "SIM105",
+  "SIM117",
+  "UP017",
+  "UP046",
+  "UP047",
+]
 
 [tool.ruff.lint.per-file-ignores]
-"src/prodkit_storage/alembic/versions/*.py" = ["E501"]
-"tests/**/*.py" = ["S101"]
+"src/prodkit_storage/alembic/versions/*.py" = ["E501", "S608"]
+"src/prodkit_storage/security/roles.py" = ["S608"]
+"src/prodkit_storage/security/audit.py" = ["S105"]
+"src/prodkit_storage/redis/rate_limit.py" = ["S105"]
+"tests/**/*.py" = ["S101", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"

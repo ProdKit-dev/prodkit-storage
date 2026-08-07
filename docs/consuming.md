@@ -5,28 +5,28 @@
 With [uv](https://github.com/astral-sh/uv):
 
 ```bash
-uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0"
+uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.1"
 ```
 
 Or in `pyproject.toml`:
 
 ```toml
 dependencies = [
-  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0",
+  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.1",
 ]
 ```
 
 Optional extras:
 
 ```bash
-uv add "prodkit-storage[shapes,observability] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.0"
+uv add "prodkit-storage[shapes,observability] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.1"
 ```
 
 Private clone over SSH:
 
 ```toml
 dependencies = [
-  "prodkit-storage @ git+ssh://git@github.com/ProdKit-dev/prodkit-storage.git@v0.2.0",
+  "prodkit-storage @ git+ssh://git@github.com/ProdKit-dev/prodkit-storage.git@v0.2.1",
 ]
 ```
 
@@ -41,12 +41,18 @@ uv add --editable "../prodkit-storage"
 In the application environment (see this repo’s `.env.example`):
 
 ```dotenv
+PRODKIT_STORAGE_ENVIRONMENT=production
 PRODKIT_STORAGE_DATABASE_URL=postgresql://user:password@db:5432/app
 PRODKIT_STORAGE_REDIS_URL=redis://127.0.0.1:6379/0
 PRODKIT_STORAGE_CURSOR_SIGNING_SECRET=<at-least-32-random-bytes>
 # Optional: modules that import models inheriting prodkit_storage.Base
 PRODKIT_STORAGE_ALEMBIC_MODEL_MODULES=myapp.models
+# Recommended when the migration login SET ROLEs to the schema owner
+PRODKIT_STORAGE_MIGRATION_OWNER_ROLE=prodkit_owner
 ```
+
+Provision approved PostgreSQL extensions such as PostGIS through infrastructure
+or a privileged database bootstrap before applying application migrations.
 
 ## Minimal application wiring
 
@@ -72,9 +78,9 @@ See `examples/consumer/` for a copy-paste starter `pyproject.toml` and module la
 
 ## Upgrade policy
 
-1. Prefer patch tags (`v0.1.1`) for bugfixes.
+1. Prefer patch tags (`v0.2.2`) for compatible correctness/security fixes.
 2. Bump the pin in each app intentionally; do not float on `main`.
-3. Run app tests and migrations after every pin bump.
+3. Run the app's own tests, migrations, role/grant checks, and deployment readiness checks after every pin bump.
 
 ## What not to put in this package
 

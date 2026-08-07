@@ -5,7 +5,11 @@ from prodkit_storage.security.audit import (
     DataClassification,
     NameClassifier,
 )
-from prodkit_storage.security.roles import PostgresRoleNames, render_role_bootstrap_sql
+from prodkit_storage.security.roles import (
+    PostgresRoleNames,
+    render_post_migration_grants_sql,
+    render_role_bootstrap_sql,
+)
 from prodkit_storage.security.secrets import (
     AsyncSecretProvider,
     EnvironmentSecretProvider,
@@ -30,5 +34,6 @@ __all__ = [
     "SecretProvider",
     "load_storage_settings",
     "load_storage_settings_async",
+    "render_post_migration_grants_sql",
     "render_role_bootstrap_sql",
 ]

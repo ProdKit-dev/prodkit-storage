@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, cast
 
 from sqlalchemy import Select, delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +55,13 @@ class ReadRepositoryProtocol(Protocol[ModelT]):
 
 class WriteRepositoryProtocol(ReadRepositoryProtocol[ModelT], Protocol):
     def add(self, entity: ModelT) -> ModelT: ...
+
+
+def _identity_column(model: type[ModelT]) -> Any:
+    try:
+        return getattr(model, "id")
+    except AttributeError as error:
+        raise TypeError(f"{model.__name__} does not expose an 'id' mapped attribute") from error
 
 
 class SyncRepository(Generic[ModelT, IdT]):
@@ -129,10 +136,8 @@ class SyncRepository(Generic[ModelT, IdT]):
         lock: RowLock | None = None,
         include_deleted: bool = False,
     ) -> ModelT | None:
-        statement = self.base_statement(  # type: ignore[attr-defined]
-            include_deleted=include_deleted
-        ).where(
-            self.model.id == identity
+        statement = self.base_statement(include_deleted=include_deleted).where(
+            _identity_column(self.model) == identity
         )
         if options:
             statement = statement.options(*options)
@@ -173,7 +178,7 @@ class SyncRepository(Generic[ModelT, IdT]):
         if options:
             query = query.options(*options)
         result = self.session.scalars(query)
-        return _scalar_all(result)
+        return cast(Sequence[ModelT], _scalar_all(result))
 
     def stream(
         self,
@@ -286,7 +291,7 @@ class SyncRepository(Generic[ModelT, IdT]):
         registry: FilterRegistry,
         terms: Iterable[FilterTerm],
     ) -> Select[tuple[ModelT]]:
-        return registry.apply(statement, terms)  # type: ignore[return-value]
+        return cast(Select[tuple[ModelT]], registry.apply(statement, terms))
 
     def _apply_soft_delete(
         self,
@@ -374,10 +379,8 @@ class AsyncRepository(Generic[ModelT, IdT]):
         lock: RowLock | None = None,
         include_deleted: bool = False,
     ) -> ModelT | None:
-        statement = self.base_statement(  # type: ignore[attr-defined]
-            include_deleted=include_deleted
-        ).where(
-            self.model.id == identity
+        statement = self.base_statement(include_deleted=include_deleted).where(
+            _identity_column(self.model) == identity
         )
         if options:
             statement = statement.options(*options)
@@ -419,7 +422,7 @@ class AsyncRepository(Generic[ModelT, IdT]):
         if options:
             query = query.options(*options)
         result = await self.session.scalars(query)
-        return _scalar_all(result)
+        return cast(Sequence[ModelT], _scalar_all(result))
 
     async def stream(
         self,
@@ -531,7 +534,7 @@ class AsyncRepository(Generic[ModelT, IdT]):
         registry: FilterRegistry,
         terms: Iterable[FilterTerm],
     ) -> Select[tuple[ModelT]]:
-        return registry.apply(statement, terms)  # type: ignore[return-value]
+        return cast(Select[tuple[ModelT]], registry.apply(statement, terms))
 
     def _apply_soft_delete(
         self,
@@ -561,8 +564,8 @@ def _apply_row_lock(
 def _scalar_all(result: Any) -> Sequence[Any]:
     unique = getattr(result, "unique", None)
     if callable(unique):
-        return unique().all()
-    return result.all()
+        return cast(Sequence[Any], unique().all())
+    return cast(Sequence[Any], result.all())
 
 
 def _result_rowcount(result: Any, *, fallback: int = 0) -> int:

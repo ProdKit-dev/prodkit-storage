@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+from collections.abc import Callable
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -39,12 +41,21 @@ def _include_object(
     reflected: bool,
     compare_to: object | None,
 ) -> bool:
-    del object_, compare_to
-    return not (reflected and type_ in {"table", "view"} and name in _POSTGIS_RELATIONS)
+    del compare_to
+    if not reflected:
+        return True
+    if type_ not in {"table", "view"}:
+        return True
+    schema = getattr(object_, "schema", None)
+    if schema not in {None, settings.database_schema}:
+        return False
+    if name == "storage_alembic_version":
+        return False
+    return name not in _POSTGIS_RELATIONS
 
 
 def _url() -> str:
-    configured = config.get_main_option("sqlalchemy.url").strip()
+    configured = (config.get_main_option("sqlalchemy.url") or "").strip()
     return configured or settings.sync_url.render_as_string(hide_password=False)
 
 
@@ -66,19 +77,25 @@ def _configure(connection: Connection | None, *, url: str | None = None) -> None
     )
 
 
+def _apply_migration_session_settings(execute: Callable[[str], Any]) -> None:
+    if settings.migration_owner_role is not None:
+        execute(f'SET ROLE "{settings.migration_owner_role}"')
+    execute(f'SET search_path TO "{settings.database_schema}", public')
+
+
 def run_migrations_offline() -> None:
     _configure(None, url=_url())
+    migration_context = context.get_context()
     with context.begin_transaction():
+        _apply_migration_session_settings(migration_context.execute)
         context.run_migrations()
 
 
 def _run_sync_migrations(connection: Connection) -> None:
-    connection.exec_driver_sql(
-        f'SET search_path TO "{settings.database_schema}", public'
-    )
     connection.dialect.default_schema_name = settings.database_schema
     _configure(connection)
     with context.begin_transaction():
+        _apply_migration_session_settings(connection.exec_driver_sql)
         context.run_migrations()
 
 

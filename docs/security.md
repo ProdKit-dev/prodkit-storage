@@ -52,16 +52,56 @@ Adapters can be implemented for Vault, AWS Secrets Manager, Google Secret
 Manager, Azure Key Vault, Kubernetes-mounted secrets, or another approved
 system. Rotation and lease renewal remain provider/deployment responsibilities.
 
+`PRODKIT_STORAGE_ENVIRONMENT=staging` and `production` reject the package's known
+development cursor-signing secret. Production deployments must supply a unique,
+secret value through their approved secret delivery path.
+
 ## PostgreSQL roles
 
 `render_role_bootstrap_sql` provides a reviewed starting point for separate
-owner, migrator, runtime, read-only, and support roles. Rendered SQL must be
-reviewed by the deployment team and applied through a privileged infrastructure
-workflow—not automatically by the application.
+owner, migrator, runtime, read-only, and support roles. Passwords and extension
+installation stay in a privileged infrastructure workflow.
+
+The recommended ownership flow is:
+
+```text
+prodkit_migrator (LOGIN, NOINHERIT)
+        |
+        | SET ROLE
+        v
+prodkit_owner (NOLOGIN, schema/object owner)
+```
+
+Set:
+
+```dotenv
+PRODKIT_STORAGE_MIGRATION_OWNER_ROLE=prodkit_owner
+```
+
+when Alembic connects as the migrator. The migrator has membership in the owner
+role but does not receive direct schema `CREATE`; this prevents accidentally
+creating objects owned by the login role and ensures owner-scoped default
+privileges apply consistently.
+
+After migrations, apply the reviewed output of
+`render_post_migration_grants_sql`. It grants normal runtime DML for application
+tables while making `storage_audit_events` append-only for the runtime role and
+withholding outbox deletion from the runtime role. The runtime receives column-
+level `SELECT` only on `storage_audit_events.occurred_at` so PostgreSQL can satisfy
+SQLAlchemy's `INSERT ... RETURNING` for that server-generated timestamp; audit
+payload/history columns remain unreadable to the runtime role.
 
 The runtime role must not own RLS-protected tables and must not have
 `BYPASSRLS`. `verify_rls_sync` and `verify_rls_async` check deployed role and
 table properties and can fail readiness or deployment verification.
+
+## Privileged PostgreSQL extensions
+
+Routine Alembic revisions do not install PostGIS or other privileged extensions.
+Provision approved extensions during database bootstrap (managed-service setup,
+Terraform, DBA workflow, or the development Compose init script) before models
+that require them are migrated. This keeps routine application migrations on a
+least-privilege role.
 
 ## Pydantic database-safe inputs
 
@@ -76,6 +116,7 @@ These validations improve error quality but do not replace database constraints.
 
 ## Supply-chain controls
 
-CI audits Python dependencies, scans the built container for high/critical
-vulnerabilities, and creates an SPDX JSON SBOM. The final application must scan
+GitHub Actions audits Python dependencies, scans the built container for
+high/critical vulnerabilities, creates an SPDX JSON SBOM, and runs the live
+PostgreSQL/PostGIS and Redis integration suite. The final application must scan
 its resolved dependencies and deployed image as well.

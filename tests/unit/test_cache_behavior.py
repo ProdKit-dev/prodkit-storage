@@ -94,12 +94,18 @@ class FakeRedis:
         del ttl, nx, gt
         return key in self.values or key in self.sets
 
-    def eval(self, script: str, number_of_keys: int, key: str, token: str, *args: Any) -> int:
+    def eval(self, script: str, number_of_keys: int, key: str, *args: Any) -> int:
         del number_of_keys
+        if "smembers" in script:
+            members = list(self.sets.get(key, set()))
+            deleted = self.delete(*[str(member) for member in members]) if members else 0
+            self.delete(key)
+            return deleted
+        token = str(args[0]) if args else ""
         if self.values.get(key) != token:
             return 0
         if "pexpire" in script:
-            return int(bool(args and int(args[0]) > 0))
+            return int(len(args) > 1 and int(args[1]) > 0)
         self.values.pop(key, None)
         return 1
 
@@ -164,9 +170,20 @@ class AsyncFakeRedis(FakeRedis):
     async def smembers(self, key: str) -> set[Any]:
         return super().smembers(key)
 
-    async def eval(self, *args: Any) -> int:
-        return super().eval(*args)
-
+    async def eval(self, script: str, number_of_keys: int, key: str, *args: Any) -> int:
+        del number_of_keys
+        if "smembers" in script:
+            members = list(self.sets.get(key, set()))
+            deleted = self._delete(*[str(member) for member in members]) if members else 0
+            self._delete(key)
+            return deleted
+        token = str(args[0]) if args else ""
+        if self.values.get(key) != token:
+            return 0
+        if "pexpire" in script:
+            return int(len(args) > 1 and int(args[1]) > 0)
+        self.values.pop(key, None)
+        return 1
 
 
 def test_sync_cache_set_get_tag_invalidation_and_stampede_lock() -> None:

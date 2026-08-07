@@ -9,6 +9,12 @@ import orjson
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedisClient
 
+RedisScalar = bytes | bytearray | memoryview | str | int | float
+
+
+def _payload(event: Mapping[str, Any]) -> dict[RedisScalar, RedisScalar]:
+    return {"data": orjson.dumps(event)}
+
 
 class SyncStreamPublisher:
     def __init__(self, client: Redis) -> None:
@@ -22,8 +28,12 @@ class SyncStreamPublisher:
         maxlen: int | None = None,
     ) -> str:
         _validate_maxlen(maxlen)
-        payload = {"data": orjson.dumps(event)}
-        message_id = self.client.xadd(stream, payload, maxlen=maxlen, approximate=True)
+        message_id = self.client.xadd(
+            stream,
+            _payload(event),
+            maxlen=maxlen,
+            approximate=True,
+        )
         return message_id.decode() if isinstance(message_id, bytes) else str(message_id)
 
 
@@ -39,8 +49,12 @@ class AsyncStreamPublisher:
         maxlen: int | None = None,
     ) -> str:
         _validate_maxlen(maxlen)
-        payload = {"data": orjson.dumps(event)}
-        message_id = await self.client.xadd(stream, payload, maxlen=maxlen, approximate=True)
+        message_id = await self.client.xadd(
+            stream,
+            _payload(event),
+            maxlen=maxlen,
+            approximate=True,
+        )
         return message_id.decode() if isinstance(message_id, bytes) else str(message_id)
 
 

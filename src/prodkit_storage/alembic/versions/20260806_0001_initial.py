@@ -1,4 +1,4 @@
-"""Create storage infrastructure tables and extensions.
+"""Create storage infrastructure tables.
 
 Revision ID: 20260806_0001
 Revises:
@@ -23,9 +23,11 @@ def _schema() -> str:
 
 def upgrade() -> None:
     schema = _schema()
-    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-    op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
 
+    # PostgreSQL extensions are infrastructure/bootstrap responsibilities. In
+    # particular PostGIS commonly requires privileges that an application
+    # migrator should not have. The development Compose stack enables them in
+    # docker/postgres/init/001-bootstrap.sql.
     op.create_table(
         "storage_audit_events",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -170,4 +172,4 @@ def downgrade() -> None:
     op.drop_index("ix_storage_audit_events_tenant_id", table_name="storage_audit_events", schema=schema)
     op.drop_index("ix_storage_audit_events_actor_id", table_name="storage_audit_events", schema=schema)
     op.drop_table("storage_audit_events", schema=schema)
-    # Extensions are intentionally retained because other application schemas may use them.
+    # Extensions are intentionally retained because application schemas may use them.

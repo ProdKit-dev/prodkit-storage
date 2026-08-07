@@ -56,7 +56,7 @@ def load_storage_settings(
                 raise ValueError(f"required secret {binding.secret_name!r} was not found")
             continue
         values[binding.setting] = value
-    return StorageSettings(**values)
+    return StorageSettings.model_validate(values)
 
 
 async def load_storage_settings_async(
@@ -75,7 +75,7 @@ async def load_storage_settings_async(
                 )
             continue
         values[binding.setting] = value
-    return StorageSettings(**values)
+    return StorageSettings.model_validate(values)
 
 
 def _validate_bindings(bindings: tuple[SecretBinding, ...]) -> None:

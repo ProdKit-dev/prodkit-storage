@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Awaitable, Callable, Iterable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import orjson
 from redis import Redis
@@ -15,6 +15,16 @@ from prodkit_storage.redis.locks import AsyncRedisLock, RedisLock
 
 T = TypeVar("T")
 _MISS = object()
+
+_INVALIDATE_TAG_SCRIPT = """
+local members = redis.call('smembers', KEYS[1])
+local deleted = 0
+for _, member in ipairs(members) do
+  deleted = deleted + redis.call('del', member)
+end
+redis.call('del', KEYS[1])
+return deleted
+"""
 
 
 class JsonCodec:
@@ -65,8 +75,6 @@ class SyncCache:
             for tag in tag_list:
                 tag_key = self.keys.tag(tag)
                 pipe.sadd(tag_key, key)
-                # Preserve the longest member TTL: NX handles a new tag set,
-                # while GT extends an existing shorter expiration.
                 pipe.expire(tag_key, ttl + 60, nx=True)
                 pipe.expire(tag_key, ttl + 60, gt=True)
             pipe.execute()
@@ -76,15 +84,7 @@ class SyncCache:
 
     def invalidate_tag(self, tag: str) -> int:
         tag_key = self.keys.tag(tag)
-        members = self.client.smembers(tag_key)
-        decoded = [m.decode() if isinstance(m, bytes) else m for m in members]
-        if not decoded:
-            return int(self.client.delete(tag_key))
-        with self.client.pipeline(transaction=True) as pipe:
-            pipe.delete(*decoded)
-            pipe.delete(tag_key)
-            results = pipe.execute()
-        return int(results[0])
+        return int(self.client.eval(_INVALIDATE_TAG_SCRIPT, 1, tag_key))
 
     def get_or_set(
         self,
@@ -98,7 +98,7 @@ class SyncCache:
     ) -> T:
         cached = self.get(key, default=_MISS)
         if cached is not _MISS:
-            return cached
+            return cast(T, cached)
         lock = RedisLock(
             self.client,
             f"{key}:lock",
@@ -108,7 +108,7 @@ class SyncCache:
         with lock:
             cached = self.get(key, default=_MISS)
             if cached is not _MISS:
-                return cached
+                return cast(T, cached)
             value = loader()
             self.set(key, value, ttl_seconds=ttl_seconds, tags=tags)
             return value
@@ -160,8 +160,6 @@ class AsyncCache:
             for tag in tags:
                 tag_key = self.keys.tag(tag)
                 pipe.sadd(tag_key, key)
-                # Preserve the longest member TTL: NX handles a new tag set,
-                # while GT extends an existing shorter expiration.
                 pipe.expire(tag_key, ttl + 60, nx=True)
                 pipe.expire(tag_key, ttl + 60, gt=True)
             await pipe.execute()
@@ -171,15 +169,7 @@ class AsyncCache:
 
     async def invalidate_tag(self, tag: str) -> int:
         tag_key = self.keys.tag(tag)
-        members = await self.client.smembers(tag_key)
-        decoded = [m.decode() if isinstance(m, bytes) else m for m in members]
-        if not decoded:
-            return int(await self.client.delete(tag_key))
-        async with self.client.pipeline(transaction=True) as pipe:
-            pipe.delete(*decoded)
-            pipe.delete(tag_key)
-            results = await pipe.execute()
-        return int(results[0])
+        return int(await self.client.eval(_INVALIDATE_TAG_SCRIPT, 1, tag_key))
 
     async def get_or_set(
         self,
@@ -193,7 +183,7 @@ class AsyncCache:
     ) -> T:
         cached = await self.get(key, default=_MISS)
         if cached is not _MISS:
-            return cached
+            return cast(T, cached)
         lock = AsyncRedisLock(
             self.client,
             f"{key}:lock",
@@ -203,7 +193,7 @@ class AsyncCache:
         async with lock:
             cached = await self.get(key, default=_MISS)
             if cached is not _MISS:
-                return cached
+                return cast(T, cached)
             value = await loader()
             await self.set(key, value, ttl_seconds=ttl_seconds, tags=tags)
             return value
