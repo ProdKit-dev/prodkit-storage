@@ -28,7 +28,7 @@ class ObservedRedis(Redis):
         started = time.perf_counter()
         failed = False
         try:
-            return super().execute_command(*args, **options)
+            return super().execute_command(*args, **options)  # type: ignore[no-untyped-call]
         except BaseException:
             failed = True
             raise
@@ -50,7 +50,10 @@ class ObservedAsyncRedis(AsyncRedisClient):
         started = time.perf_counter()
         failed = False
         try:
-            return await super().execute_command(*args, **options)
+            return await super().execute_command(  # type: ignore[no-untyped-call]
+                *args,
+                **options,
+            )
         except BaseException:
             failed = True
             raise
