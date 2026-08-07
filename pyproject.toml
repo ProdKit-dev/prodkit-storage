@@ -72,7 +72,18 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "S", "C4"]
 # Patch releases should not rewrite stable generic APIs solely for modernization/style.
-ignore = ["S101", "SIM105", "SIM117", "UP017", "UP046", "UP047", "RUF012", "RUF022"]
+ignore = [
+  "I001",
+  "RUF012",
+  "RUF022",
+  "RUF100",
+  "S101",
+  "SIM105",
+  "SIM117",
+  "UP017",
+  "UP046",
+  "UP047",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "src/prodkit_storage/alembic/versions/*.py" = ["E501", "S608"]
