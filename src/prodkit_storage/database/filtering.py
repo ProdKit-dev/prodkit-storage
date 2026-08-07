@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Select
 from sqlalchemy.sql.elements import ColumnElement
@@ -54,11 +54,7 @@ class FilterRegistry:
         for name, field in fields.items():
             if not name or name.startswith("_"):
                 raise ValueError("filter field names must be public non-empty names")
-            normalized_field = (
-                field
-                if isinstance(field, FilterField)
-                else FilterField(name=name, expression=field)
-            )
+            normalized_field = field if isinstance(field, FilterField) else FilterField(name, field)
             if normalized_field.name != name:
                 raise ValueError("filter field mapping key must match FilterField.name")
             normalized[name] = normalized_field
@@ -88,38 +84,40 @@ class FilterRegistry:
         value = term.value
         match term.operator:
             case FilterOperator.EQ:
-                return expression == value
+                result = expression == value
             case FilterOperator.NE:
-                return expression != value
+                result = expression != value
             case FilterOperator.LT:
-                return expression < value
+                result = expression < value
             case FilterOperator.LTE:
-                return expression <= value
+                result = expression <= value
             case FilterOperator.GT:
-                return expression > value
+                result = expression > value
             case FilterOperator.GTE:
-                return expression >= value
+                result = expression >= value
             case FilterOperator.IN:
-                return expression.in_(_require_sequence(value, term.operator))
+                result = expression.in_(_require_sequence(value, term.operator))
             case FilterOperator.NOT_IN:
-                return expression.not_in(_require_sequence(value, term.operator))
+                result = expression.not_in(_require_sequence(value, term.operator))
             case FilterOperator.IS_NULL:
                 if not isinstance(value, bool):
                     raise ValueError("is_null filter requires a boolean value")
-                return expression.is_(None) if value else expression.is_not(None)
+                result = expression.is_(None) if value else expression.is_not(None)
             case FilterOperator.CONTAINS:
-                return expression.contains(
+                result = expression.contains(
                     _require_string(value, term.operator), autoescape=True
                 )
             case FilterOperator.STARTS_WITH:
-                return expression.startswith(
+                result = expression.startswith(
                     _require_string(value, term.operator), autoescape=True
                 )
             case FilterOperator.ENDS_WITH:
-                return expression.endswith(
+                result = expression.endswith(
                     _require_string(value, term.operator), autoescape=True
                 )
-        raise AssertionError("unreachable")
+            case _:
+                raise AssertionError("unreachable")
+        return cast(ColumnElement[bool], result)
 
 
 def _require_sequence(value: Any, operator: FilterOperator) -> Sequence[Any]:
