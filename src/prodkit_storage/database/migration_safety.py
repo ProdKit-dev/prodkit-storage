@@ -325,20 +325,12 @@ def _call_method(call: ast.Call) -> str | None:
 
 
 def _call_argument(call: ast.Call, position: int, keyword: str) -> ast.Call | None:
-    value: ast.AST | None
-    if len(call.args) > position:
-        value = call.args[position]
-    else:
-        value = _keyword_value(call, keyword)
+    value = call.args[position] if len(call.args) > position else _keyword_value(call, keyword)
     return value if isinstance(value, ast.Call) else None
 
 
 def _string_argument(call: ast.Call, position: int, keyword: str) -> str | None:
-    value: ast.AST | None
-    if len(call.args) > position:
-        value = call.args[position]
-    else:
-        value = _keyword_value(call, keyword)
+    value = call.args[position] if len(call.args) > position else _keyword_value(call, keyword)
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
         return value.value
     return None
