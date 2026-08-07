@@ -6,7 +6,7 @@ import hashlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import orjson
 from sqlalchemy import Select, false, or_
@@ -101,21 +101,22 @@ class ResolvedSortTerm:
 
     def equality(self, cursor_value: Any) -> ColumnElement[bool]:
         if cursor_value is None:
-            return self.field.expression.is_(None)
-        return self.field.expression == cursor_value
+            return cast(ColumnElement[bool], self.field.expression.is_(None))
+        return cast(ColumnElement[bool], self.field.expression == cursor_value)
 
     def after(self, cursor_value: Any) -> ColumnElement[bool]:
         expression = self.field.expression
         if cursor_value is None:
-            return expression.is_not(None) if self.nulls is NullPlacement.FIRST else false()
+            result = expression.is_not(None) if self.nulls is NullPlacement.FIRST else false()
+            return cast(ColumnElement[bool], result)
         value_comparison = (
             expression < cursor_value
             if self.direction is SortDirection.DESC
             else expression > cursor_value
         )
         if self.nulls is NullPlacement.LAST:
-            return or_(expression.is_(None), value_comparison)
-        return value_comparison
+            return cast(ColumnElement[bool], or_(expression.is_(None), value_comparison))
+        return cast(ColumnElement[bool], value_comparison)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,10 +138,12 @@ class SortPlan:
         for term, value in zip(self.terms, values, strict=True):
             alternatives.append((*equal_prefix, term.after(value)))
             equal_prefix.append(term.equality(value))
-        # SQLAlchemy's and_ accepts variadic criteria; construct lazily to keep typing simple.
         from sqlalchemy import and_
 
-        return or_(*(and_(*criteria) for criteria in alternatives))
+        return cast(
+            ColumnElement[bool],
+            or_(*(and_(*criteria) for criteria in alternatives)),
+        )
 
     @property
     def external_values(self) -> tuple[str, ...]:
@@ -166,11 +169,7 @@ class SortRegistry:
         self.name = name.strip() or "default"
         self._fields: dict[str, SortField] = {}
         for field_name, field in fields.items():
-            normalized = (
-                field
-                if isinstance(field, SortField)
-                else SortField(field_name, field)
-            )
+            normalized = field if isinstance(field, SortField) else SortField(field_name, field)
             if normalized.name != field_name:
                 raise ValueError("sort field mapping key must match SortField.name")
             self._fields[field_name] = normalized
@@ -225,8 +224,6 @@ class SortRegistry:
             )
         if self._tie_breaker.field not in seen:
             tie_direction = self._tie_breaker.direction
-            # A bare string tie-breaker is normalized to ASC; follow the last
-            # criterion unless the caller supplied a full SortTerm explicitly.
             if self._tie_breaker_was_string:
                 tie_direction = resolved[-1].direction
             field = self._require_field(self._tie_breaker.field)
