@@ -16,6 +16,16 @@ from prodkit_storage.redis.locks import AsyncRedisLock, RedisLock
 T = TypeVar("T")
 _MISS = object()
 
+_INVALIDATE_TAG_SCRIPT = """
+local members = redis.call('smembers', KEYS[1])
+local deleted = 0
+for _, member in ipairs(members) do
+  deleted = deleted + redis.call('del', member)
+end
+redis.call('del', KEYS[1])
+return deleted
+"""
+
 
 class JsonCodec:
     def dumps(self, value: Any) -> bytes:
@@ -75,16 +85,10 @@ class SyncCache:
         return int(self.client.delete(*keys)) if keys else 0
 
     def invalidate_tag(self, tag: str) -> int:
+        """Atomically delete all current members of a cache tag and the tag set."""
+
         tag_key = self.keys.tag(tag)
-        members = self.client.smembers(tag_key)
-        decoded = [m.decode() if isinstance(m, bytes) else m for m in members]
-        if not decoded:
-            return int(self.client.delete(tag_key))
-        with self.client.pipeline(transaction=True) as pipe:
-            pipe.delete(*decoded)
-            pipe.delete(tag_key)
-            results = pipe.execute()
-        return int(results[0])
+        return int(self.client.eval(_INVALIDATE_TAG_SCRIPT, 1, tag_key))
 
     def get_or_set(
         self,
@@ -160,8 +164,6 @@ class AsyncCache:
             for tag in tags:
                 tag_key = self.keys.tag(tag)
                 pipe.sadd(tag_key, key)
-                # Preserve the longest member TTL: NX handles a new tag set,
-                # while GT extends an existing shorter expiration.
                 pipe.expire(tag_key, ttl + 60, nx=True)
                 pipe.expire(tag_key, ttl + 60, gt=True)
             await pipe.execute()
@@ -170,16 +172,10 @@ class AsyncCache:
         return int(await self.client.delete(*keys)) if keys else 0
 
     async def invalidate_tag(self, tag: str) -> int:
+        """Atomically delete all current members of a cache tag and the tag set."""
+
         tag_key = self.keys.tag(tag)
-        members = await self.client.smembers(tag_key)
-        decoded = [m.decode() if isinstance(m, bytes) else m for m in members]
-        if not decoded:
-            return int(await self.client.delete(tag_key))
-        async with self.client.pipeline(transaction=True) as pipe:
-            pipe.delete(*decoded)
-            pipe.delete(tag_key)
-            results = await pipe.execute()
-        return int(results[0])
+        return int(await self.client.eval(_INVALIDATE_TAG_SCRIPT, 1, tag_key))
 
     async def get_or_set(
         self,
