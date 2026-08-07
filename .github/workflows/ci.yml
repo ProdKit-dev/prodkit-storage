@@ -56,19 +56,27 @@ jobs:
                   connection.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
           PY
       - run: uv run ruff check .
+      - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run alembic upgrade head --sql > /tmp/migration.sql
       - name: Apply migrations
         run: uv run alembic upgrade head
-      - name: Verify migration revision and CLI wrapper
+      - name: Capture Alembic revision state
         run: |
-          uv run alembic current --verbose
-          uv run alembic heads --verbose
-          uv run prodkit-storage current
+          {
+            echo "=== current ==="
+            uv run alembic current --verbose
+            echo "=== heads ==="
+            uv run alembic heads --verbose
+            echo "=== history ==="
+            uv run alembic history --verbose
+            echo "=== CLI current ==="
+            uv run prodkit-storage current
+          } | tee /tmp/alembic-check.log
       - name: Check Alembic metadata drift
         run: |
           set -o pipefail
-          uv run alembic check 2>&1 | tee /tmp/alembic-check.log
+          uv run alembic check 2>&1 | tee -a /tmp/alembic-check.log
       - name: Upload Alembic drift report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
