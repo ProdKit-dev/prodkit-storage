@@ -1,4 +1,4 @@
-.PHONY: install up down migrate schema-check doctor test integration lint typecheck security backup-check load-smoke check clean
+.PHONY: install up down migrate schema-check doctor test integration lint typecheck security backup-check load-smoke failure-smoke check clean
 
 install:
 	uv sync --all-extras
@@ -44,6 +44,9 @@ backup-check:
 
 load-smoke:
 	uv run python ops/load/storage_smoke.py --iterations 100 --concurrency 10
+
+failure-smoke:
+	uv run python ops/failure/dependency_failure_smoke.py
 
 check: lint typecheck test
 
