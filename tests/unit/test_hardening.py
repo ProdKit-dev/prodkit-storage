@@ -72,6 +72,7 @@ def test_role_templates_require_explicit_set_role_and_append_only_audit() -> Non
 
     grants = render_post_migration_grants_sql()
     assert "REVOKE SELECT, UPDATE, DELETE" in grants
+    assert "GRANT SELECT (occurred_at)" in grants
     assert "storage_audit_events" in grants
     assert "REVOKE DELETE" in grants
     assert "storage_outbox_events" in grants
