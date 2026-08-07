@@ -1,0 +1,194 @@
+"""Environment-driven configuration for PostgreSQL and Redis."""
+
+from __future__ import annotations
+
+import re
+from functools import cached_property
+from typing import Literal
+from urllib.parse import urlsplit
+
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL, make_url
+
+from prodkit_storage.exceptions import ConfigurationError
+
+IsolationLevel = Literal[
+    "AUTOCOMMIT",
+    "READ COMMITTED",
+    "REPEATABLE READ",
+    "SERIALIZABLE",
+]
+
+
+class StorageSettings(BaseSettings):
+    """Complete runtime settings.
+
+    A plain ``postgresql://`` URL is accepted and converted to psycopg for sync
+    access and asyncpg for async access. Explicit sync/async URLs take priority.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="PRODKIT_STORAGE_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        validate_default=True,
+    )
+
+    database_url: SecretStr = Field(
+        default=SecretStr("postgresql://prodkit:prodkit@localhost:5432/prodkit")
+    )
+    sync_database_url: SecretStr | None = None
+    async_database_url: SecretStr | None = None
+    read_database_url: SecretStr | None = None
+    async_read_database_url: SecretStr | None = None
+
+    application_name: str = Field(default="prodkit-storage", max_length=63)
+    database_schema: str = "public"
+    alembic_model_modules: str = ""
+    echo_sql: bool = False
+    pool_pre_ping: bool = True
+    pool_size: int = Field(default=10, ge=1, le=500)
+    max_overflow: int = Field(default=20, ge=0, le=1000)
+    pool_timeout_seconds: float = Field(default=30.0, gt=0)
+    pool_recycle_seconds: int = Field(default=1800, ge=0)
+    connect_timeout_seconds: int = Field(default=10, ge=1)
+    command_timeout_seconds: float = Field(default=30.0, gt=0)
+    statement_timeout_ms: int = Field(default=30_000, ge=0)
+    lock_timeout_ms: int = Field(default=5_000, ge=0)
+    idle_in_transaction_timeout_ms: int = Field(default=60_000, ge=0)
+    isolation_level: IsolationLevel = "READ COMMITTED"
+
+    tenant_rls_enabled: bool = False
+    tenant_required: bool = False
+    rls_tenant_setting: str = "app.tenant_id"
+    rls_actor_setting: str = "app.actor_id"
+    rls_request_setting: str = "app.request_id"
+
+    redis_url: SecretStr = Field(default=SecretStr("redis://localhost:6379/0"))
+    redis_socket_timeout_seconds: float = Field(default=2.0, gt=0)
+    redis_connect_timeout_seconds: float = Field(default=2.0, gt=0)
+    redis_health_check_interval_seconds: int = Field(default=30, ge=0)
+    redis_max_connections: int = Field(default=100, ge=1)
+    redis_retry_attempts: int = Field(default=3, ge=0, le=20)
+    redis_decode_responses: bool = False
+    cache_namespace: str = "prodkit"
+    cache_default_ttl_seconds: int = Field(default=300, ge=1)
+    cache_ttl_jitter_ratio: float = Field(default=0.10, ge=0, le=0.50)
+
+    cursor_signing_secret: SecretStr = Field(
+        default=SecretStr("replace-this-development-only-secret")
+    )
+    slow_query_threshold_ms: float = Field(default=250.0, gt=0)
+    log_query_parameters: bool = False
+
+    @field_validator("application_name", "cache_namespace")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("rls_tenant_setting", "rls_actor_setting", "rls_request_setting")
+    @classmethod
+    def _safe_setting_name(cls, value: str) -> str:
+        value = value.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", value) is None:
+            raise ValueError("RLS setting names must be valid PostgreSQL custom settings")
+        return value
+
+    @field_validator("cursor_signing_secret")
+    @classmethod
+    def _strong_cursor_secret(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value().encode("utf-8")) < 32:
+            raise ValueError("cursor_signing_secret must contain at least 32 bytes")
+        return value
+
+    @field_validator("redis_url")
+    @classmethod
+    def _valid_redis_url(cls, value: SecretStr) -> SecretStr:
+        scheme = urlsplit(value.get_secret_value()).scheme
+        if scheme not in {"redis", "rediss", "unix"}:
+            raise ValueError("redis_url must use redis://, rediss://, or unix://")
+        return value
+
+    @field_validator("alembic_model_modules")
+    @classmethod
+    def _safe_model_modules(cls, value: str) -> str:
+        modules = [item.strip() for item in value.split(",") if item.strip()]
+        pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+        if any(pattern.fullmatch(module) is None for module in modules):
+            raise ValueError("alembic_model_modules must contain comma-separated module names")
+        return ",".join(dict.fromkeys(modules))
+
+    @field_validator("database_schema")
+    @classmethod
+    def _safe_schema(cls, value: str) -> str:
+        value = value.strip()
+        if re.fullmatch(r"[a-z_][a-z0-9_]*", value) is None:
+            raise ValueError("database_schema must be a lowercase PostgreSQL identifier")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_urls(self) -> StorageSettings:
+        for url in (
+            self.database_url,
+            self.sync_database_url,
+            self.async_database_url,
+            self.read_database_url,
+            self.async_read_database_url,
+        ):
+            if url is None:
+                continue
+            parsed = make_url(url.get_secret_value())
+            if parsed.get_backend_name() != "postgresql":
+                raise ValueError("all database URLs must use PostgreSQL")
+        return self
+
+    @cached_property
+    def sync_url(self) -> URL:
+        raw = (self.sync_database_url or self.database_url).get_secret_value()
+        return _with_driver(make_url(raw), "postgresql+psycopg")
+
+    @cached_property
+    def async_url(self) -> URL:
+        raw = (self.async_database_url or self.database_url).get_secret_value()
+        return _with_driver(make_url(raw), "postgresql+asyncpg")
+
+    @cached_property
+    def sync_read_url(self) -> URL | None:
+        if self.read_database_url is None:
+            return None
+        return _with_driver(
+            make_url(self.read_database_url.get_secret_value()),
+            "postgresql+psycopg",
+        )
+
+    @cached_property
+    def async_read_url(self) -> URL | None:
+        candidate = self.async_read_database_url or self.read_database_url
+        if candidate is None:
+            return None
+        return _with_driver(make_url(candidate.get_secret_value()), "postgresql+asyncpg")
+
+    @property
+    def alembic_model_module_names(self) -> tuple[str, ...]:
+        return tuple(item for item in self.alembic_model_modules.split(",") if item)
+
+    @property
+    def redis_dsn(self) -> str:
+        return self.redis_url.get_secret_value()
+
+    @property
+    def cursor_secret_bytes(self) -> bytes:
+        secret = self.cursor_signing_secret.get_secret_value().encode("utf-8")
+        if len(secret) < 32:
+            raise ConfigurationError("cursor_signing_secret must contain at least 32 bytes")
+        return secret
+
+
+def _with_driver(url: URL, drivername: str) -> URL:
+    return url.set(drivername=drivername)
