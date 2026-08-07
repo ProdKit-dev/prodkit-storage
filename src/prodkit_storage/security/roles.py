@@ -96,9 +96,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {roles.
 GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {roles.read_only}, {roles.support};
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {roles.runtime};
 
--- Shared audit table: runtime may append but cannot read, rewrite, or erase history.
+-- Shared audit table: runtime may append but cannot read payload/history or mutate rows.
 REVOKE SELECT, UPDATE, DELETE ON TABLE {schema}.storage_audit_events FROM {roles.runtime};
 GRANT INSERT ON TABLE {schema}.storage_audit_events TO {roles.runtime};
+-- SQLAlchemy fetches the server-generated timestamp with INSERT ... RETURNING.
+-- PostgreSQL requires SELECT on each column referenced by RETURNING, so expose
+-- only this non-payload column rather than granting table-wide audit reads.
+GRANT SELECT (occurred_at) ON TABLE {schema}.storage_audit_events TO {roles.runtime};
 
 -- Shared outbox table: publishing updates are allowed; retention deletion is separate.
 REVOKE DELETE ON TABLE {schema}.storage_outbox_events FROM {roles.runtime};
