@@ -41,6 +41,7 @@ _CREATE_POLICY_SQL = (
     "NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
 )
 _GRANT_SCHEMA_SQL = "GRANT USAGE ON SCHEMA public TO prodkit_ci_rls_runtime"
+_REVOKE_SCHEMA_SQL = "REVOKE ALL ON SCHEMA public FROM prodkit_ci_rls_runtime"
 _GRANT_TABLE_SQL = (
     "GRANT SELECT, INSERT, UPDATE, DELETE ON public.storage_ci_rls_documents "
     "TO prodkit_ci_rls_runtime"
@@ -96,6 +97,7 @@ def _cleanup() -> None:
             isolation_level="AUTOCOMMIT"
         ) as connection:
             connection.exec_driver_sql(_DROP_TABLE_SQL)
+            connection.exec_driver_sql(_REVOKE_SCHEMA_SQL)
             connection.exec_driver_sql(_DROP_ROLE_SQL)
     finally:
         database.dispose()
