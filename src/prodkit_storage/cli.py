@@ -1,4 +1,4 @@
-"""Operational CLI for health checks and bundled Alembic migrations."""
+"""Operational CLI for health checks, schema safety, and Alembic migrations."""
 
 from __future__ import annotations
 
@@ -13,7 +13,12 @@ from alembic.config import Config
 
 from prodkit_storage.config import StorageSettings
 from prodkit_storage.database.health import check_async_database, check_sync_database
+from prodkit_storage.database.migration_safety import inspect_migration_file
 from prodkit_storage.database.runtime import AsyncDatabase, SyncDatabase
+from prodkit_storage.database.schema_compatibility import (
+    check_schema_compatibility_async,
+    check_schema_compatibility_sync,
+)
 from prodkit_storage.redis.health import check_async_redis, check_sync_redis
 from prodkit_storage.redis.runtime import AsyncRedis, SyncRedis
 
@@ -57,12 +62,59 @@ async def _doctor_async(settings: StorageSettings) -> int:
     return 0 if all(component["healthy"] for component in result.values()) else 1
 
 
+def _schema_check_sync(settings: StorageSettings) -> int:
+    database = SyncDatabase(settings)
+    try:
+        with database.session() as session:
+            report = check_schema_compatibility_sync(session)
+    finally:
+        database.dispose()
+    print(json.dumps(asdict(report), indent=2, default=str))
+    return 0 if report.compatible else 1
+
+
+async def _schema_check_async(settings: StorageSettings) -> int:
+    database = AsyncDatabase(settings)
+    try:
+        async with database.session() as session:
+            report = await check_schema_compatibility_async(session)
+    finally:
+        await database.dispose()
+    print(json.dumps(asdict(report), indent=2, default=str))
+    return 0 if report.compatible else 1
+
+
+def _migration_check(paths: list[str]) -> int:
+    blocking = False
+    for raw_path in paths:
+        report = inspect_migration_file(raw_path)
+        for issue in report.issues:
+            waived = issue.code in report.waivers
+            status = "WAIVED" if waived else issue.severity.value.upper()
+            print(f"{report.path}:{issue.line}: {status} {issue.code}: {issue.message}")
+        if report.blocking_issues:
+            blocking = True
+    return 1 if blocking else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="prodkit-storage")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     doctor = subparsers.add_parser("doctor", help="check PostgreSQL/PostGIS and Redis")
     doctor.add_argument("--async", dest="async_mode", action="store_true")
+
+    schema_check = subparsers.add_parser(
+        "schema-check",
+        help="verify the live Alembic revision is compatible with this package",
+    )
+    schema_check.add_argument("--async", dest="async_mode", action="store_true")
+
+    migration_check = subparsers.add_parser(
+        "migration-check",
+        help="lint new Alembic revision source for production migration hazards",
+    )
+    migration_check.add_argument("paths", nargs="+")
 
     upgrade = subparsers.add_parser("upgrade", help="run Alembic upgrade")
     upgrade.add_argument("revision", nargs="?", default="head")
@@ -79,9 +131,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "migration-check":
+        return _migration_check(args.paths)
+
     settings = StorageSettings()
     if args.command == "doctor":
         return asyncio.run(_doctor_async(settings)) if args.async_mode else _doctor_sync(settings)
+    if args.command == "schema-check":
+        return (
+            asyncio.run(_schema_check_async(settings))
+            if args.async_mode
+            else _schema_check_sync(settings)
+        )
 
     config = _alembic_config(settings, async_driver=args.async_mode)
     if args.command == "upgrade":
