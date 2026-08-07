@@ -44,8 +44,10 @@ def upgrade() -> None:
         sa.Column("lock_token", sa.Uuid(), nullable=True),
         schema=schema,
     )
+    # Pass the logical name; the metadata naming convention adds the
+    # ck_<table>_ prefix exactly once.
     op.create_check_constraint(
-        "ck_storage_outbox_events_processing_has_lock_token",
+        "processing_has_lock_token",
         table,
         "(status = 'processing' AND lock_token IS NOT NULL) "
         "OR (status <> 'processing' AND lock_token IS NULL)",
