@@ -115,7 +115,7 @@ class ResolvedSortTerm:
             else expression > cursor_value
         )
         if self.nulls is NullPlacement.LAST:
-            return cast(ColumnElement[bool], or_(expression.is_(None), value_comparison))
+            return or_(expression.is_(None), value_comparison)
         return cast(ColumnElement[bool], value_comparison)
 
 
@@ -140,10 +140,7 @@ class SortPlan:
             equal_prefix.append(term.equality(value))
         from sqlalchemy import and_
 
-        return cast(
-            ColumnElement[bool],
-            or_(*(and_(*criteria) for criteria in alternatives)),
-        )
+        return or_(*(and_(*criteria) for criteria in alternatives))
 
     @property
     def external_values(self) -> tuple[str, ...]:
