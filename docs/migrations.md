@@ -132,7 +132,7 @@ The repository workflow verifies:
 - metadata drift with `alembic check`;
 - live PostgreSQL/PostGIS and Redis integration behavior;
 - downgrade of one supported revision and roll-forward to head;
-- lint, formatting, strict typing, dependency audit, image scanning, and SBOM.
+- lint, strict typing, dependency audit, image scanning, and SBOM generation.
 
 Before `1.0.0`, expand this into an oldest-supported-release upgrade matrix when
 more than one production revision must be supported concurrently.
