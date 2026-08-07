@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Awaitable, Callable, Iterable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import orjson
 from redis import Redis
@@ -75,8 +75,6 @@ class SyncCache:
             for tag in tag_list:
                 tag_key = self.keys.tag(tag)
                 pipe.sadd(tag_key, key)
-                # Preserve the longest member TTL: NX handles a new tag set,
-                # while GT extends an existing shorter expiration.
                 pipe.expire(tag_key, ttl + 60, nx=True)
                 pipe.expire(tag_key, ttl + 60, gt=True)
             pipe.execute()
@@ -85,8 +83,6 @@ class SyncCache:
         return int(self.client.delete(*keys)) if keys else 0
 
     def invalidate_tag(self, tag: str) -> int:
-        """Atomically delete all current members of a cache tag and the tag set."""
-
         tag_key = self.keys.tag(tag)
         return int(self.client.eval(_INVALIDATE_TAG_SCRIPT, 1, tag_key))
 
@@ -102,7 +98,7 @@ class SyncCache:
     ) -> T:
         cached = self.get(key, default=_MISS)
         if cached is not _MISS:
-            return cached
+            return cast(T, cached)
         lock = RedisLock(
             self.client,
             f"{key}:lock",
@@ -112,7 +108,7 @@ class SyncCache:
         with lock:
             cached = self.get(key, default=_MISS)
             if cached is not _MISS:
-                return cached
+                return cast(T, cached)
             value = loader()
             self.set(key, value, ttl_seconds=ttl_seconds, tags=tags)
             return value
@@ -172,8 +168,6 @@ class AsyncCache:
         return int(await self.client.delete(*keys)) if keys else 0
 
     async def invalidate_tag(self, tag: str) -> int:
-        """Atomically delete all current members of a cache tag and the tag set."""
-
         tag_key = self.keys.tag(tag)
         return int(await self.client.eval(_INVALIDATE_TAG_SCRIPT, 1, tag_key))
 
@@ -189,7 +183,7 @@ class AsyncCache:
     ) -> T:
         cached = await self.get(key, default=_MISS)
         if cached is not _MISS:
-            return cached
+            return cast(T, cached)
         lock = AsyncRedisLock(
             self.client,
             f"{key}:lock",
@@ -199,7 +193,7 @@ class AsyncCache:
         async with lock:
             cached = await self.get(key, default=_MISS)
             if cached is not _MISS:
-                return cached
+                return cast(T, cached)
             value = await loader()
             await self.set(key, value, ttl_seconds=ttl_seconds, tags=tags)
             return value
