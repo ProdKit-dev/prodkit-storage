@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from logging.config import fileConfig
+from typing import Any, Callable
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -39,8 +40,17 @@ def _include_object(
     reflected: bool,
     compare_to: object | None,
 ) -> bool:
-    del object_, compare_to
-    return not (reflected and type_ in {"table", "view"} and name in _POSTGIS_RELATIONS)
+    del compare_to
+    if not reflected:
+        return True
+    if type_ not in {"table", "view"}:
+        return True
+    schema = getattr(object_, "schema", None)
+    if schema not in {None, settings.database_schema}:
+        return False
+    if name == "storage_alembic_version":
+        return False
+    return name not in _POSTGIS_RELATIONS
 
 
 def _url() -> str:
@@ -66,12 +76,10 @@ def _configure(connection: Connection | None, *, url: str | None = None) -> None
     )
 
 
-def _apply_migration_session_settings(execute: object) -> None:
+def _apply_migration_session_settings(execute: Callable[[str], Any]) -> None:
     if settings.migration_owner_role is not None:
-        execute(f'SET ROLE "{settings.migration_owner_role}"')  # type: ignore[operator]
-    execute(  # type: ignore[operator]
-        f'SET search_path TO "{settings.database_schema}", public'
-    )
+        execute(f'SET ROLE "{settings.migration_owner_role}"')
+    execute(f'SET search_path TO "{settings.database_schema}", public')
 
 
 def run_migrations_offline() -> None:
