@@ -127,8 +127,6 @@ def complete_outbox_event(
     lock_token: UUID,
     at: datetime | None = None,
 ) -> None:
-    """Mark an event published only while the caller still owns its lease."""
-
     published_at = at or datetime.now(timezone.utc)
     result = session.execute(
         update(OutboxEvent)
@@ -189,8 +187,6 @@ def fail_outbox_event(
     max_attempts: int = 10,
     base_delay_seconds: int = 5,
 ) -> OutboxEvent:
-    """Retry/dead-letter an event after proving the current lease is still owned."""
-
     event = session.scalar(
         select(OutboxEvent)
         .where(
@@ -243,13 +239,6 @@ async def fail_outbox_event_async(
 
 
 def mark_outbox_published(event: OutboxEvent, *, at: datetime | None = None) -> None:
-    """Mutate a claimed ORM event to published state.
-
-    Prefer :func:`complete_outbox_event` for workers that publish outside the
-    claim transaction. The model's optimistic version still protects this
-    legacy helper from stale ORM writes after a reclaim.
-    """
-
     event.status = "published"
     event.published_at = at or datetime.now(timezone.utc)
     event.locked_at = None
@@ -308,9 +297,16 @@ class OutboxMetrics:
     oldest_pending_age_seconds: float | None
 
 
+def _status_counts(rows: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for status, count in rows:
+        counts[str(status)] = int(count)
+    return counts
+
+
 def get_outbox_metrics(session: Session) -> OutboxMetrics:
     now = datetime.now(timezone.utc)
-    counts = dict(
+    counts = _status_counts(
         session.execute(
             select(OutboxEvent.status, func.count()).group_by(OutboxEvent.status)
         ).all()
@@ -334,7 +330,7 @@ async def get_outbox_metrics_async(session: AsyncSession) -> OutboxMetrics:
     result = await session.execute(
         select(OutboxEvent.status, func.count()).group_by(OutboxEvent.status)
     )
-    counts = dict(result.all())
+    counts = _status_counts(result.all())
     oldest = await session.scalar(
         select(func.min(OutboxEvent.created_at)).where(OutboxEvent.status == "pending")
     )
