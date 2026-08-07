@@ -5,14 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from prodkit_storage.config import StorageSettings
 from prodkit_storage.context import get_request_context
 from prodkit_storage.database.observability import get_telemetry
+from prodkit_storage.exceptions import OutboxLeaseLostError
 from prodkit_storage.models.outbox import OutboxEvent
 
 
@@ -76,6 +78,7 @@ def claim_outbox_events(
         event.status = "processing"
         event.locked_at = now
         event.locked_by = worker_id
+        event.lock_token = uuid4()
         event.attempts += 1
     session.flush()
     return events
@@ -111,16 +114,147 @@ async def claim_outbox_events_async(
         event.status = "processing"
         event.locked_at = now
         event.locked_by = worker_id
+        event.lock_token = uuid4()
         event.attempts += 1
     await session.flush()
     return events
 
 
+def complete_outbox_event(
+    session: Session,
+    *,
+    event_id: UUID,
+    lock_token: UUID,
+    at: datetime | None = None,
+) -> None:
+    """Mark an event published only while the caller still owns its lease."""
+
+    published_at = at or datetime.now(timezone.utc)
+    result = session.execute(
+        update(OutboxEvent)
+        .where(
+            OutboxEvent.id == event_id,
+            OutboxEvent.status == "processing",
+            OutboxEvent.lock_token == lock_token,
+        )
+        .values(
+            status="published",
+            published_at=published_at,
+            locked_at=None,
+            locked_by=None,
+            lock_token=None,
+            last_error=None,
+            version=OutboxEvent.version + 1,
+        )
+    )
+    if _rowcount(result) != 1:
+        raise OutboxLeaseLostError(f"outbox event {event_id} lease is no longer owned")
+
+
+async def complete_outbox_event_async(
+    session: AsyncSession,
+    *,
+    event_id: UUID,
+    lock_token: UUID,
+    at: datetime | None = None,
+) -> None:
+    published_at = at or datetime.now(timezone.utc)
+    result = await session.execute(
+        update(OutboxEvent)
+        .where(
+            OutboxEvent.id == event_id,
+            OutboxEvent.status == "processing",
+            OutboxEvent.lock_token == lock_token,
+        )
+        .values(
+            status="published",
+            published_at=published_at,
+            locked_at=None,
+            locked_by=None,
+            lock_token=None,
+            last_error=None,
+            version=OutboxEvent.version + 1,
+        )
+    )
+    if _rowcount(result) != 1:
+        raise OutboxLeaseLostError(f"outbox event {event_id} lease is no longer owned")
+
+
+def fail_outbox_event(
+    session: Session,
+    *,
+    event_id: UUID,
+    lock_token: UUID,
+    error: BaseException | str,
+    max_attempts: int = 10,
+    base_delay_seconds: int = 5,
+) -> OutboxEvent:
+    """Retry/dead-letter an event after proving the current lease is still owned."""
+
+    event = session.scalar(
+        select(OutboxEvent)
+        .where(
+            OutboxEvent.id == event_id,
+            OutboxEvent.status == "processing",
+            OutboxEvent.lock_token == lock_token,
+        )
+        .with_for_update()
+    )
+    if event is None:
+        raise OutboxLeaseLostError(f"outbox event {event_id} lease is no longer owned")
+    mark_outbox_failed(
+        event,
+        error,
+        max_attempts=max_attempts,
+        base_delay_seconds=base_delay_seconds,
+    )
+    session.flush()
+    return event
+
+
+async def fail_outbox_event_async(
+    session: AsyncSession,
+    *,
+    event_id: UUID,
+    lock_token: UUID,
+    error: BaseException | str,
+    max_attempts: int = 10,
+    base_delay_seconds: int = 5,
+) -> OutboxEvent:
+    event = await session.scalar(
+        select(OutboxEvent)
+        .where(
+            OutboxEvent.id == event_id,
+            OutboxEvent.status == "processing",
+            OutboxEvent.lock_token == lock_token,
+        )
+        .with_for_update()
+    )
+    if event is None:
+        raise OutboxLeaseLostError(f"outbox event {event_id} lease is no longer owned")
+    mark_outbox_failed(
+        event,
+        error,
+        max_attempts=max_attempts,
+        base_delay_seconds=base_delay_seconds,
+    )
+    await session.flush()
+    return event
+
+
 def mark_outbox_published(event: OutboxEvent, *, at: datetime | None = None) -> None:
+    """Mutate a claimed ORM event to published state.
+
+    Prefer :func:`complete_outbox_event` for workers that publish outside the
+    claim transaction. The model's optimistic version still protects this
+    legacy helper from stale ORM writes after a reclaim.
+    """
+
     event.status = "published"
     event.published_at = at or datetime.now(timezone.utc)
     event.locked_at = None
     event.locked_by = None
+    event.lock_token = None
     event.last_error = None
 
 
@@ -138,6 +272,7 @@ def mark_outbox_failed(
     event.last_error = str(error)[:8000]
     event.locked_at = None
     event.locked_by = None
+    event.lock_token = None
     if event.attempts >= max_attempts:
         event.status = "dead"
         return
@@ -159,6 +294,11 @@ def _validate_claim_options(
         raise ValueError("stale_after must be positive")
 
 
+def _rowcount(result: Any) -> int:
+    value = getattr(result, "rowcount", None)
+    return int(value) if value is not None and int(value) >= 0 else 0
+
+
 @dataclass(frozen=True, slots=True)
 class OutboxMetrics:
     pending: int
@@ -172,8 +312,7 @@ def get_outbox_metrics(session: Session) -> OutboxMetrics:
     now = datetime.now(timezone.utc)
     counts = dict(
         session.execute(
-            select(OutboxEvent.status, func.count())
-            .group_by(OutboxEvent.status)
+            select(OutboxEvent.status, func.count()).group_by(OutboxEvent.status)
         ).all()
     )
     oldest = session.scalar(
@@ -223,3 +362,19 @@ def _build_outbox_metrics(
         dead=int(counts.get("dead", 0)),
         oldest_pending_age_seconds=age,
     )
+
+
+__all__ = [
+    "OutboxMetrics",
+    "claim_outbox_events",
+    "claim_outbox_events_async",
+    "complete_outbox_event",
+    "complete_outbox_event_async",
+    "enqueue_outbox_event",
+    "fail_outbox_event",
+    "fail_outbox_event_async",
+    "get_outbox_metrics",
+    "get_outbox_metrics_async",
+    "mark_outbox_failed",
+    "mark_outbox_published",
+]
