@@ -9,7 +9,7 @@ import orjson
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedisClient
 
-RedisScalar = bytes | str | int | float
+RedisScalar = bytes | bytearray | memoryview | str | int | float
 
 
 def _payload(event: Mapping[str, Any]) -> dict[RedisScalar, RedisScalar]:
