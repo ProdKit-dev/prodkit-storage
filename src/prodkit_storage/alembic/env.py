@@ -44,7 +44,7 @@ def _include_object(
 
 
 def _url() -> str:
-    configured = config.get_main_option("sqlalchemy.url").strip()
+    configured = (config.get_main_option("sqlalchemy.url") or "").strip()
     return configured or settings.sync_url.render_as_string(hide_password=False)
 
 
