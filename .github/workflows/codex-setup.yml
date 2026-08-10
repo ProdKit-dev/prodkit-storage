@@ -1,0 +1,30 @@
+name: Codex setup
+
+on:
+  pull_request:
+    paths:
+      - .codex/setup.sh
+      - .codex/test-setup.sh
+      - .github/workflows/codex-setup.yml
+  push:
+    branches:
+      - main
+    paths:
+      - .codex/setup.sh
+      - .codex/test-setup.sh
+      - .github/workflows/codex-setup.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Validate Codex setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Run setup contract tests
+        shell: bash
+        run: bash .codex/test-setup.sh
