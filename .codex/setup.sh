@@ -14,12 +14,19 @@ else
   global_agents="$codex_home/AGENTS.md"
 fi
 
-policy_marker="# BEGIN PRODKIT GITHUB PUBLISHING POLICY"
-if [ ! -f "$global_agents" ] || ! grep -Fq "$policy_marker" "$global_agents"; then
-  if [ -s "$global_agents" ]; then
-    printf '\n' >> "$global_agents"
+policy_begin="# BEGIN PRODKIT GITHUB PUBLISHING POLICY"
+policy_end="# END PRODKIT GITHUB PUBLISHING POLICY"
+policy_file="$(mktemp "${TMPDIR:-/tmp}/prodkit-codex-policy.XXXXXX")"
+agents_tmp=""
+cleanup() {
+  rm -f "$policy_file"
+  if [ -n "$agents_tmp" ]; then
+    rm -f "$agents_tmp"
   fi
-  cat >> "$global_agents" <<'EOF'
+}
+trap cleanup EXIT
+
+cat > "$policy_file" <<'EOF_POLICY'
 # BEGIN PRODKIT GITHUB PUBLISHING POLICY
 ## ProdKit GitHub publishing
 
@@ -31,29 +38,81 @@ if [ ! -f "$global_agents" ] || ! grep -Fq "$policy_marker" "$global_agents"; th
 - Never persist personal access tokens, setup-only secrets, private keys, or GitHub credentials into repository files or agent-readable configuration.
 - Do not run interactive `gh auth login` in Codex cloud or CI.
 # END PRODKIT GITHUB PUBLISHING POLICY
-EOF
-fi
+EOF_POLICY
 
+refresh_policy() {
+  local target="$1"
+  local begin_count=0
+  local end_count=0
+
+  if [ -f "$target" ]; then
+    begin_count="$(grep -Fxc "$policy_begin" "$target" || true)"
+    end_count="$(grep -Fxc "$policy_end" "$target" || true)"
+  fi
+
+  if [ "$begin_count" -gt 0 ] || [ "$end_count" -gt 0 ]; then
+    if [ "$begin_count" -eq 0 ] || [ "$end_count" -eq 0 ] || [ "$begin_count" -ne "$end_count" ]; then
+      echo "WARNING: malformed ProdKit publishing policy markers in $target; leaving existing instructions unchanged." >&2
+      return 0
+    fi
+
+    agents_tmp="$(mktemp "${TMPDIR:-/tmp}/prodkit-codex-agents.XXXXXX")"
+    awk -v begin="$policy_begin" -v end="$policy_end" -v policy="$policy_file" '
+      function emit_policy(line) {
+        while ((getline line < policy) > 0) print line
+        close(policy)
+      }
+      $0 == begin {
+        if (!emitted) {
+          emit_policy()
+          emitted = 1
+        }
+        in_policy = 1
+        next
+      }
+      in_policy && $0 == end {
+        in_policy = 0
+        next
+      }
+      !in_policy { print }
+    ' "$target" > "$agents_tmp"
+    cat "$agents_tmp" > "$target"
+    rm -f "$agents_tmp"
+    agents_tmp=""
+  else
+    if [ -s "$target" ]; then
+      printf '\n' >> "$target"
+    fi
+    cat "$policy_file" >> "$target"
+  fi
+}
+
+refresh_policy "$global_agents"
 echo "ProdKit Codex publishing guidance ready: $global_agents"
 
-if command -v gh >/dev/null 2>&1; then
-  echo "GitHub CLI already available: $(gh --version | head -n 1)"
+gh_command="${PRODKIT_CODEX_GH_COMMAND:-gh}"
+apt_get_command="${PRODKIT_CODEX_APT_GET_COMMAND:-apt-get}"
+sudo_command="${PRODKIT_CODEX_SUDO_COMMAND:-sudo}"
+effective_uid="${PRODKIT_CODEX_EFFECTIVE_UID:-$(id -u)}"
+
+if command -v "$gh_command" >/dev/null 2>&1; then
+  echo "GitHub CLI already available: $($gh_command --version | head -n 1)"
 else
   can_install=false
   SUDO=()
 
-  if command -v apt-get >/dev/null 2>&1; then
-    if [ "$(id -u)" -eq 0 ]; then
+  if command -v "$apt_get_command" >/dev/null 2>&1; then
+    if [ "$effective_uid" -eq 0 ]; then
       can_install=true
-    elif command -v sudo >/dev/null 2>&1; then
-      SUDO=(sudo)
+    elif command -v "$sudo_command" >/dev/null 2>&1; then
+      SUDO=("$sudo_command" -n)
       can_install=true
     fi
   fi
 
   if [ "$can_install" = true ]; then
     echo "Installing GitHub CLI for Codex cloud..."
-    if "${SUDO[@]}" apt-get update && "${SUDO[@]}" apt-get install -y gh; then
+    if "${SUDO[@]}" "$apt_get_command" update && "${SUDO[@]}" "$apt_get_command" install -y gh; then
       echo "GitHub CLI installation completed."
     else
       echo "WARNING: GitHub CLI installation failed; GitHub integration remains the PR path." >&2
@@ -63,9 +122,9 @@ else
   fi
 fi
 
-if command -v gh >/dev/null 2>&1; then
-  echo "GitHub CLI ready: $(gh --version | head -n 1)"
-  if gh auth status >/dev/null 2>&1; then
+if command -v "$gh_command" >/dev/null 2>&1; then
+  echo "GitHub CLI ready: $($gh_command --version | head -n 1)"
+  if "$gh_command" auth status >/dev/null 2>&1; then
     echo "GitHub CLI authentication is available."
   else
     echo "GitHub CLI is not authenticated; use Codex/GitHub integration for PR creation."
