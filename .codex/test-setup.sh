@@ -36,6 +36,8 @@ run_setup() {
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/prodkit-codex-test.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 
+# Existing policy blocks are upgraded in place, surrounding instructions survive,
+# and repeated setup runs are byte-for-byte idempotent.
 upgrade_home="$tmp_root/upgrade"
 mkdir -p "$upgrade_home"
 cat > "$upgrade_home/AGENTS.md" <<'EOF_AGENTS'
@@ -58,6 +60,7 @@ cp "$upgrade_home/AGENTS.md" "$tmp_root/agents.once"
 run_setup "$upgrade_home" >/dev/null 2>&1
 cmp -s "$tmp_root/agents.once" "$upgrade_home/AGENTS.md" || fail "repeated setup changed AGENTS.md"
 
+# A non-empty override file remains the authoritative Codex global instruction target.
 override_home="$tmp_root/override"
 mkdir -p "$override_home"
 printf '%s\n' '# base instructions' > "$override_home/AGENTS.md"
@@ -66,6 +69,7 @@ run_setup "$override_home" >/dev/null 2>&1
 assert_not_contains "$override_home/AGENTS.md" "BEGIN PRODKIT GITHUB PUBLISHING POLICY"
 assert_contains "$override_home/AGENTS.override.md" "BEGIN PRODKIT GITHUB PUBLISHING POLICY"
 
+# An installed but unauthenticated gh is detected without failing setup.
 fakebin="$tmp_root/bin"
 mkdir -p "$fakebin"
 cat > "$fakebin/prodkit-gh" <<'EOF_GH'
@@ -88,6 +92,7 @@ PRODKIT_CODEX_APT_GET_COMMAND="prodkit-missing-apt-get" \
 bash "$setup_script" > "$tmp_root/unauth.log" 2>&1
 assert_contains "$tmp_root/unauth.log" "GitHub CLI is not authenticated"
 
+# Failed installation remains non-fatal and sudo is always invoked non-interactively.
 cat > "$fakebin/prodkit-apt" <<'EOF_APT'
 #!/usr/bin/env bash
 exit 42
