@@ -39,23 +39,27 @@ echo "ProdKit Codex publishing guidance ready: $global_agents"
 if command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI already available: $(gh --version | head -n 1)"
 else
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "WARNING: gh is missing and this environment does not provide apt-get; GitHub integration remains the PR path." >&2
-  else
+  can_install=false
+  SUDO=()
+
+  if command -v apt-get >/dev/null 2>&1; then
     if [ "$(id -u)" -eq 0 ]; then
-      SUDO=()
+      can_install=true
     elif command -v sudo >/dev/null 2>&1; then
       SUDO=(sudo)
-    else
-      SUDO=()
-      echo "WARNING: gh is missing and package installation requires root or sudo; GitHub integration remains the PR path." >&2
+      can_install=true
     fi
+  fi
 
-    if [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1; then
-      echo "Installing GitHub CLI for Codex cloud..."
-      "${SUDO[@]}" apt-get update
-      "${SUDO[@]}" apt-get install -y gh
+  if [ "$can_install" = true ]; then
+    echo "Installing GitHub CLI for Codex cloud..."
+    if "${SUDO[@]}" apt-get update && "${SUDO[@]}" apt-get install -y gh; then
+      echo "GitHub CLI installation completed."
+    else
+      echo "WARNING: GitHub CLI installation failed; GitHub integration remains the PR path." >&2
     fi
+  else
+    echo "WARNING: gh is missing and cannot be installed here; GitHub integration remains the PR path." >&2
   fi
 fi
 
