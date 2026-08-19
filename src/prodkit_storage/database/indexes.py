@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import Connection, text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 
@@ -101,8 +102,7 @@ def _inspection_params(table_name: str, schema: str) -> dict[str, str]:
     }
 
 
-def _index_state(row: object) -> PostgreSQLIndexState:
-    mapping = getattr(row, "_mapping", row)
+def _index_state(mapping: RowMapping) -> PostgreSQLIndexState:
     return PostgreSQLIndexState(
         schema=str(mapping["schema_name"]),
         table=str(mapping["table_name"]),
