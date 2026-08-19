@@ -14,6 +14,7 @@ from alembic.config import Config
 from prodkit_storage.config import StorageSettings
 from prodkit_storage.database.capabilities import (
     DatabaseCapabilityError,
+    PostgreSQLCapabilities,
     inspect_postgresql_capabilities_async,
     inspect_postgresql_capabilities_sync,
     require_postgresql_capabilities,
@@ -98,11 +99,14 @@ async def _capabilities_async(settings: StorageSettings, args: argparse.Namespac
     return _print_capabilities(report, args)
 
 
-def _print_capabilities(report: object, args: argparse.Namespace) -> int:
-    payload = asdict(report)  # type: ignore[arg-type]
+def _print_capabilities(
+    report: PostgreSQLCapabilities,
+    args: argparse.Namespace,
+) -> int:
+    payload = asdict(report)
     try:
         require_postgresql_capabilities(
-            report,  # type: ignore[arg-type]
+            report,
             extensions=args.require_extension,
             access_methods=args.require_access_method,
             text_search_configs=args.require_text_search_config,
