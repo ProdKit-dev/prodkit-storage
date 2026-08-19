@@ -45,17 +45,40 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_local_assets(dist: Path) -> dict[str, LocalAsset]:
+def load_local_assets(dist: Path, *, tag: str) -> dict[str, LocalAsset]:
     if not dist.is_dir():
         raise ReleaseError(f"release directory does not exist: {dist}")
     files = sorted(path for path in dist.iterdir() if path.is_file())
     if not files:
         raise ReleaseError("release directory contains no files")
 
+    hidden = sorted(path.name for path in files if path.name.startswith("."))
+    if hidden:
+        raise ReleaseError(f"release directory contains hidden files: {hidden}")
+
     by_name = {path.name: path for path in files}
     checksum_path = by_name.get("SHA256SUMS")
     if checksum_path is None:
         raise ReleaseError("release directory is missing SHA256SUMS")
+
+    payload_names = set(by_name) - {"SHA256SUMS"}
+    source_name = f"prodkit-storage-{tag}-source.tar.gz"
+    wheel_names = sorted(name for name in payload_names if name.endswith(".whl"))
+    sdist_names = sorted(
+        name
+        for name in payload_names
+        if name.endswith(".tar.gz") and name != source_name
+    )
+    if (
+        len(payload_names) != 3
+        or len(wheel_names) != 1
+        or len(sdist_names) != 1
+        or source_name not in payload_names
+    ):
+        raise ReleaseError(
+            "release payload must contain exactly one wheel, one sdist, and "
+            f"{source_name}; found={sorted(payload_names)}"
+        )
 
     manifest: dict[str, str] = {}
     for line_number, raw_line in enumerate(
@@ -69,7 +92,6 @@ def load_local_assets(dist: Path) -> dict[str, LocalAsset]:
             raise ReleaseError(f"duplicate SHA256SUMS entry: {name}")
         manifest[name] = match.group("digest")
 
-    payload_names = set(by_name) - {"SHA256SUMS"}
     if set(manifest) != payload_names:
         missing = sorted(payload_names - set(manifest))
         extra = sorted(set(manifest) - payload_names)
@@ -370,6 +392,44 @@ def verify_release_metadata(release: dict[str, Any], *, target_sha: str) -> None
         raise ReleaseError("release target_commitish does not match exact release SHA")
 
 
+def prepare_draft_release(
+    client: GitHubClient,
+    repository: str,
+    release: dict[str, Any],
+    *,
+    target_sha: str,
+) -> dict[str, Any]:
+    """Return a draft pinned to the exact release SHA.
+
+    A previous failed promotion may leave a draft release behind before GitHub
+    creates the tag. Retargeting is allowed only while the release is still a
+    draft; callers must verify any existing tag before invoking this helper.
+    Published releases remain immutable and are handled separately.
+    """
+
+    if release.get("draft") is not True:
+        raise ReleaseError("existing release is neither draft nor published")
+
+    if release.get("target_commitish") != target_sha or release.get("prerelease") is not False:
+        release = client.update_release(
+            repository,
+            release_id(release),
+            {
+                "draft": True,
+                "prerelease": False,
+                "target_commitish": target_sha,
+            },
+        )
+
+    if release.get("draft") is not True:
+        raise ReleaseError("prepared release unexpectedly stopped being a draft")
+    if release.get("prerelease") is not False:
+        raise ReleaseError("prepared draft unexpectedly marked prerelease")
+    if release.get("target_commitish") != target_sha:
+        raise ReleaseError("prepared draft does not target exact release SHA")
+    return release
+
+
 def sync_draft_assets(
     client: GitHubClient,
     repository: str,
@@ -420,7 +480,7 @@ def publish(dist: Path) -> None:
     if not tag.startswith("v") or len(tag) < 2:
         raise ReleaseError("RELEASE_TAG must start with v")
 
-    expected = load_local_assets(dist)
+    expected = load_local_assets(dist, tag=tag)
     client = GitHubClient(token=token, api_url=api_url, max_attempts=max_attempts)
     release = client.find_release(repository, tag)
 
@@ -439,10 +499,12 @@ def publish(dist: Path) -> None:
     if release is None:
         release = client.create_draft(repository, tag, target_sha)
     else:
-        if release.get("draft") is not True:
-            raise ReleaseError("existing release is neither draft nor published")
-        if release.get("target_commitish") != target_sha:
-            raise ReleaseError("draft release targets a different commit")
+        release = prepare_draft_release(
+            client,
+            repository,
+            release,
+            target_sha=target_sha,
+        )
 
     sync_draft_assets(client, repository, release, expected)
     rid = release_id(release)
