@@ -47,7 +47,7 @@ def test_pgvector_fts_indexes_capabilities_and_repeatable_snapshot() -> None:
             )
             connection.execute(
                 text(
-                    f"INSERT INTO {_TABLE} (id, body, embedding) VALUES "
+                    f"INSERT INTO {_TABLE} (id, body, embedding) VALUES "  # noqa: S608
                     "(1, :body1, CAST(:vector1 AS vector)), "
                     "(2, :body2, CAST(:vector2 AS vector))"
                 ),
@@ -103,14 +103,14 @@ def test_pgvector_fts_indexes_capabilities_and_repeatable_snapshot() -> None:
             assert "vector_cosine_ops" in by_name[_HNSW_INDEX].definition
             assert connection.scalar(
                 text(
-                    f"SELECT count(*) FROM {_TABLE} "
+                    f"SELECT count(*) FROM {_TABLE} "  # noqa: S608
                     "WHERE body_tsv @@ websearch_to_tsquery('simple', :query)"
                 ),
                 {"query": "postgresql search"},
             ) == 1
             nearest = connection.scalar(
                 text(
-                    f"SELECT id FROM {_TABLE} "
+                    f"SELECT id FROM {_TABLE} "  # noqa: S608
                     "ORDER BY embedding <=> CAST(:query AS vector) LIMIT 1"
                 ),
                 {"query": "[1,0,0]"},
