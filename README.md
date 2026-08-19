@@ -1,8 +1,8 @@
 # ProdKit Storage
 
-A standalone, typed Python foundation for enterprise SaaS persistence using PostgreSQL, PostGIS, SQLAlchemy, Alembic, and Redis. It exposes parallel synchronous and asynchronous APIs while keeping transaction boundaries explicit.
+A standalone, typed Python foundation for enterprise SaaS persistence using PostgreSQL, PostGIS, SQLAlchemy, Alembic, and Redis. It exposes parallel synchronous and asynchronous APIs, keeps transaction boundaries explicit, and provides reusable low-level PostgreSQL capability primitives without absorbing application or search-domain semantics.
 
-> This repository is an application storage foundation, not a managed database service. Backups, replication, failover, capacity management, encryption keys, network policy, and incident response remain deployment responsibilities.
+> ProdKit Storage is an application storage foundation, not a managed database service. Backups, replication, failover, capacity management, privileged extension lifecycle, encryption keys, network policy, and incident response remain deployment responsibilities.
 
 ## Included
 
@@ -22,6 +22,13 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - Optional tenant, actor, and request context propagated with `SET LOCAL` semantics
 - PostgreSQL SQLSTATE classification and strict string/integer/native enum helpers
 - Process-aware client identity, slow-query logging, telemetry, and component health probes
+- Read-only sync/async PostgreSQL capability discovery for server versions, extensions, access methods, and text-search configurations
+- Fail-closed capability requirements exposed through Python and the `prodkit-storage capabilities` CLI
+- PostgreSQL-native `tsvector`/`tsquery` expression helpers and GIN migration primitives
+- Optional pgvector SQLAlchemy types plus HNSW/IVFFlat operator-class and migration helpers
+- Advanced concurrent-index DDL with access methods, operator classes, storage parameters, predicates, and included columns
+- Sync/async index introspection with validity/readiness checks
+- Generic JSONB expression helpers and explicit repeatable-read snapshot contexts
 
 ### Multi-tenancy and auditability
 
@@ -50,15 +57,16 @@ A standalone, typed Python foundation for enterprise SaaS persistence using Post
 - Redis Streams publisher
 - Health probes and command-level OpenTelemetry metrics
 
-### Operations
+### Operations and release safety
 
 - Bundled Alembic environment and versioned shared-table migrations
 - Explicit owner/migrator role separation with `SET ROLE` support
-- CLI for migrations and dependency health checks
-- PostgreSQL 18/PostGIS 3.6 and Redis 8 development Compose stack
-- Active GitHub Actions CI with linting, strict typing, unit tests, live integration tests, migration drift/rollback checks, dependency auditing, image scanning, and SPDX SBOM generation
-- Optional FastAPI, Pydantic, OpenTelemetry, and secret-provider integrations
-- Production guidance for RLS, replicas, pooling, migrations, backup/PITR, Redis durability, and disaster recovery
+- CLI for migrations, schema compatibility, dependency health, migration safety, and PostgreSQL capabilities
+- PostgreSQL 18/PostGIS 3.6, PostgreSQL 18/pgvector, and Redis 8 CI coverage
+- Active GitHub Actions CI with lockfile verification, linting, strict typing, full tests, live integrations, migration drift/rollback checks, backup/restore, load/failure smokes, dependency auditing, image scanning, and SPDX SBOM generation
+- Permanent exact-`main` release gate that builds wheel, sdist, exact-source archive, and `SHA256SUMS`, then verifies remote GitHub asset digests before publication
+- Optional FastAPI, Pydantic, OpenTelemetry, vector, spatial-shape, and secret-provider integrations
+- Production guidance for RLS, replicas, pooling, migrations, extension readiness, backup/PITR, Redis durability, and disaster recovery
 
 ## Quick start
 
@@ -68,6 +76,10 @@ uv sync --all-extras
 docker compose up -d --wait
 uv run prodkit-storage upgrade head
 uv run prodkit-storage doctor
+uv run prodkit-storage capabilities \
+  --require-extension postgis \
+  --require-access-method gin \
+  --require-text-search-config simple
 uv run pytest
 ```
 
@@ -75,6 +87,24 @@ The development services bind only to loopback:
 
 - PostgreSQL/PostGIS: `127.0.0.1:5432`
 - Redis: `127.0.0.1:6379`
+
+The dedicated pgvector database is a CI validation service rather than an additional runtime dependency for ordinary consumers.
+
+## Installation from another repository
+
+Pin immutable releases rather than floating `main`:
+
+```bash
+uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.4.0"
+```
+
+Install pgvector integration only when a consumer needs it:
+
+```bash
+uv add "prodkit-storage[vector] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.4.0"
+```
+
+See [`docs/consuming.md`](docs/consuming.md) for the complete consumer contract.
 
 ## Configuration
 
@@ -87,8 +117,7 @@ PRODKIT_STORAGE_REDIS_URL=rediss://user:password@redis:6379/0
 PRODKIT_STORAGE_CURSOR_SIGNING_SECRET=<at-least-32-random-bytes>
 ```
 
-`staging` and `production` reject the package's known development cursor secret.
-A plain PostgreSQL URL is converted to:
+`staging` and `production` reject the package's known development cursor secret. A plain PostgreSQL URL is converted to:
 
 - `postgresql+psycopg://` for sync access
 - `postgresql+asyncpg://` for async access
@@ -135,7 +164,7 @@ with database.read_transaction() as session:
     rows = session.scalars(select(Customer)).all()
 ```
 
-Do not use a replica for a flow that needs immediate read-your-writes consistency unless your infrastructure provides synchronous replication.
+Do not use a replica for a flow that needs immediate read-your-writes consistency unless the infrastructure provides the required replication guarantee.
 
 Repositories exclude soft-deleted rows by default. Pass `include_deleted=True` only for explicit administrative or restoration workflows.
 
@@ -159,9 +188,7 @@ async def update_customer(customer_id):
 
 ## Query foundation
 
-Sorting, filtering, and pagination are explicit and allowlisted. Public API names
-are mapped to SQLAlchemy expressions by each domain instead of accepting raw
-column names.
+Sorting, filtering, and pagination are explicit and allowlisted. Public API names are mapped to SQLAlchemy expressions by each domain instead of accepting raw column names.
 
 ```python
 from sqlalchemy import select
@@ -191,17 +218,38 @@ page = await customers.paginate_cursor(
 )
 ```
 
-The cursor format authenticates the sort definition, last-row values, and
-optional query fingerprint. The original two-column cursor API remains available
-for compatibility. Both sync and async cursor paths de-duplicate ORM scalar
-results so joined eager loads follow SQLAlchemy's `unique()` requirement.
+The cursor authenticates the sort definition, last-row values, and optional query fingerprint. Both sync and async cursor paths de-duplicate ORM scalar results so joined eager loads follow SQLAlchemy's `unique()` requirement.
 
-Use offset pagination when exact totals or direct page navigation are more
-important than deep-page performance.
+Use offset pagination when exact totals or direct page navigation are more important than deep-page performance. Repositories also support loader options, `FOR UPDATE NOWAIT`, `FOR UPDATE SKIP LOCKED`, streaming with `yield_per`, count-safe subqueries, and explicit flush/refresh behavior. See [`docs/querying.md`](docs/querying.md).
 
-Repositories also support loader options, `FOR UPDATE NOWAIT`,
-`FOR UPDATE SKIP LOCKED`, streaming with `yield_per`, count-safe subqueries,
-and explicit flush/refresh behavior. See [`docs/querying.md`](docs/querying.md).
+## PostgreSQL capability layer
+
+The v0.4.0 capability layer is deliberately mechanical. Storage exposes PostgreSQL primitives; consumers choose product semantics.
+
+```python
+from prodkit_storage.database import (
+    VectorDistance,
+    inspect_postgresql_capabilities_sync,
+    repeatable_read_sync,
+    vector_operator_class,
+)
+
+with database.write_engine.connect() as connection:
+    capabilities = inspect_postgresql_capabilities_sync(connection)
+
+if not capabilities.has_extension("vector"):
+    raise RuntimeError("deployment must provision pgvector")
+
+operator_class = vector_operator_class(
+    "vector",
+    VectorDistance.COSINE,
+    method="hnsw",
+)
+```
+
+Storage owns capability discovery, SQLAlchemy types/expressions, safe index DDL/introspection, JSONB mechanics, and stable snapshots. A specialized package such as ProdKit Search owns document projections, analyzers, embeddings, query interpretation, ranking, hybrid fusion, highlighting, suggestions, pagination semantics, and search-index lifecycle.
+
+PostgreSQL extensions are deployment-owned. Runtime code and routine Alembic migrations never silently install or upgrade `vector`, PostGIS, pgcrypto, or other privileged extensions. See [`docs/postgresql-capabilities.md`](docs/postgresql-capabilities.md).
 
 ## Request and tenant context
 
@@ -222,8 +270,7 @@ with request_context(
         ...
 ```
 
-Enable RLS only after creating policies and using a runtime database role that
-does not own the protected tables:
+Enable RLS only after creating policies and using a runtime database role that does not own the protected tables:
 
 ```dotenv
 PRODKIT_STORAGE_TENANT_RLS_ENABLED=true
@@ -240,19 +287,11 @@ Install optional integrations as needed:
 uv add "prodkit-storage[fastapi,observability]"
 ```
 
-The security layer provides audit field classification/redaction, sync and async
-secret-provider protocols, PostgreSQL role bootstrap/post-migration grant
-templates, and RLS deployment verification. The Pydantic integration rejects
-PostgreSQL-incompatible NUL characters and provides bounded integer/string
-helpers.
+The security layer provides audit field classification/redaction, sync and async secret-provider protocols, PostgreSQL role bootstrap/post-migration grant templates, and RLS deployment verification. The Pydantic integration rejects PostgreSQL-incompatible NUL characters and provides bounded integer/string helpers.
 
-When observability is enabled, the runtime emits database query, transaction,
-pool, Redis, and outbox metrics and preserves request, trace, actor, tenant,
-process, component, and instance correlation. Exporters, sampling, SLOs, and
-alerts remain application/deployment responsibilities.
+When observability is enabled, the runtime emits database query, transaction, pool, Redis, and outbox metrics and preserves request, trace, actor, tenant, process, component, and instance correlation. Exporters, sampling, SLOs, and alerts remain application/deployment responsibilities.
 
-See [`docs/security.md`](docs/security.md) and
-[`docs/observability.md`](docs/observability.md).
+See [`docs/security.md`](docs/security.md) and [`docs/observability.md`](docs/observability.md).
 
 ## Transactional outbox
 
@@ -273,34 +312,7 @@ with database.transaction() as session:
     )
 ```
 
-Workers claim with row locking and skip locked rows. Each claim receives a fresh
-lease token:
-
-```python
-from prodkit_storage.outbox import claim_outbox_events, complete_outbox_event
-
-with database.transaction() as session:
-    events = claim_outbox_events(session, worker_id="worker-1", batch_size=100)
-    claims = [(event.id, event.lock_token, event.topic, event.payload) for event in events]
-
-for event_id, lock_token, topic, payload in claims:
-    assert lock_token is not None
-    publisher.publish(topic, payload)
-    with database.transaction() as session:
-        complete_outbox_event(
-            session,
-            event_id=event_id,
-            lock_token=lock_token,
-        )
-```
-
-If a stale worker wakes after another worker reclaims the event, ownership-checked
-completion fails with `OutboxLeaseLostError` instead of overwriting the newer
-claim. The ORM model also uses optimistic versioning as a second stale-write
-barrier.
-
-Publication is still at least once: a process can publish successfully and fail
-before recording `published`, so downstream consumers must be idempotent.
+Workers claim with row locking and skip locked rows. Each claim receives a fresh lease token. A stale worker cannot complete an event after a newer worker reclaims it; ownership-checked completion fails rather than overwriting the newer claim. Publication remains at least once, so downstream consumers must be idempotent.
 
 ## Redis cache
 
@@ -326,10 +338,7 @@ customer = cache.get_or_set(
 )
 ```
 
-Tag invalidation is one Redis Lua operation, avoiding the old read-then-delete
-race between `SMEMBERS` and deletion. Use separate Redis deployments or
-namespaces for cache, durable idempotency, locks, streams, and rate limiting when
-their durability or eviction requirements differ.
+Tag invalidation is one Redis Lua operation. Use separate Redis deployments or namespaces for cache, durable idempotency, locks, streams, and rate limiting when their durability or eviction requirements differ.
 
 ## PostGIS query
 
@@ -359,14 +368,9 @@ uv run prodkit-storage downgrade -1
 uv run alembic revision --autogenerate -m "add customer table"
 ```
 
-Routine migrations create/alter application objects only. PostGIS, pgcrypto,
-`pg_stat_statements`, and other privileged extensions belong to the database
-bootstrap/infrastructure layer; the development Compose init script enables the
-local extensions.
+Routine migrations create or alter application objects only. PostGIS, pgcrypto, `pg_stat_statements`, `vector`, and other privileged extensions belong to database bootstrap/infrastructure. Concurrent GIN/HNSW/IVFFlat builds should be treated as deliberate migration operations with production-shaped resource and query-plan validation.
 
-When owner/migrator separation is used, Alembic connects as the migrator and
-`SET ROLE`s to `PRODKIT_STORAGE_MIGRATION_OWNER_ROLE` before applying schema
-changes. See [`docs/migrations.md`](docs/migrations.md).
+When owner/migrator separation is used, Alembic connects as the migrator and `SET ROLE`s to `PRODKIT_STORAGE_MIGRATION_OWNER_ROLE` before applying schema changes. See [`docs/migrations.md`](docs/migrations.md).
 
 ## Production boundaries
 
@@ -375,13 +379,17 @@ This repository deliberately does not hide important architecture decisions:
 - It does not automatically route arbitrary ORM reads to replicas.
 - It does not claim exactly-once delivery; it provides an at-least-once transactional outbox foundation.
 - It does not auto-enable RLS on application tables.
+- It does not silently install or upgrade privileged PostgreSQL extensions.
 - It does not make Redis a source of truth for business records.
+- It does not choose embeddings, analyzers, ranking, hybrid fusion, or search-index lifecycle.
 - It does not implement database backups, failover, sharding, or schema-per-tenant provisioning.
 - It does not replace authorization, encryption/key management, data classification, or retention policy.
 
-Read the operational documents before deployment:
+Read the architecture and operational contracts before deployment:
 
 - [`docs/architecture.md`](docs/architecture.md)
+- [`docs/postgresql-capabilities.md`](docs/postgresql-capabilities.md)
+- [`docs/consuming.md`](docs/consuming.md)
 - [`docs/tenancy.md`](docs/tenancy.md)
 - [`docs/querying.md`](docs/querying.md)
 - [`docs/security.md`](docs/security.md)
@@ -390,3 +398,5 @@ Read the operational documents before deployment:
 - [`docs/operations.md`](docs/operations.md)
 - [`docs/enterprise-checklist.md`](docs/enterprise-checklist.md)
 - [`VALIDATION.md`](VALIDATION.md)
+- [`ROADMAP.md`](ROADMAP.md)
+- [`MAINTENANCE.md`](MAINTENANCE.md)
