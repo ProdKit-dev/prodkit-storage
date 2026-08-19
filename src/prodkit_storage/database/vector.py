@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.sql.type_api import TypeEngine
 
@@ -87,13 +87,13 @@ def vector_type(kind: VectorKind | str, dimensions: int) -> TypeEngine[Any]:
             "pgvector Python support is not installed; install prodkit-storage[vector]"
         ) from error
 
-    factories: dict[VectorKind, type[TypeEngine[Any]]] = {
+    factories: dict[VectorKind, Any] = {
         VectorKind.VECTOR: VECTOR,
         VectorKind.HALF_VECTOR: HALFVEC,
         VectorKind.SPARSE_VECTOR: SPARSEVEC,
         VectorKind.BIT: BIT,
     }
-    return factories[normalized_kind](dimensions)
+    return cast(TypeEngine[Any], factories[normalized_kind](dimensions))
 
 
 def vector_operator_class(
@@ -121,12 +121,10 @@ def vector_distance_operator(distance: VectorDistance | str) -> str:
 
 
 _VECTOR_OPERATOR_CLASSES: dict[tuple[VectorIndexMethod, VectorKind, VectorDistance], str] = {
-    # HNSW dense vectors.
     (VectorIndexMethod.HNSW, VectorKind.VECTOR, VectorDistance.L2): "vector_l2_ops",
     (VectorIndexMethod.HNSW, VectorKind.VECTOR, VectorDistance.INNER_PRODUCT): "vector_ip_ops",
     (VectorIndexMethod.HNSW, VectorKind.VECTOR, VectorDistance.COSINE): "vector_cosine_ops",
     (VectorIndexMethod.HNSW, VectorKind.VECTOR, VectorDistance.L1): "vector_l1_ops",
-    # HNSW half vectors.
     (VectorIndexMethod.HNSW, VectorKind.HALF_VECTOR, VectorDistance.L2): "halfvec_l2_ops",
     (
         VectorIndexMethod.HNSW,
@@ -135,7 +133,6 @@ _VECTOR_OPERATOR_CLASSES: dict[tuple[VectorIndexMethod, VectorKind, VectorDistan
     ): "halfvec_ip_ops",
     (VectorIndexMethod.HNSW, VectorKind.HALF_VECTOR, VectorDistance.COSINE): "halfvec_cosine_ops",
     (VectorIndexMethod.HNSW, VectorKind.HALF_VECTOR, VectorDistance.L1): "halfvec_l1_ops",
-    # HNSW sparse vectors.
     (VectorIndexMethod.HNSW, VectorKind.SPARSE_VECTOR, VectorDistance.L2): "sparsevec_l2_ops",
     (
         VectorIndexMethod.HNSW,
@@ -148,10 +145,8 @@ _VECTOR_OPERATOR_CLASSES: dict[tuple[VectorIndexMethod, VectorKind, VectorDistan
         VectorDistance.COSINE,
     ): "sparsevec_cosine_ops",
     (VectorIndexMethod.HNSW, VectorKind.SPARSE_VECTOR, VectorDistance.L1): "sparsevec_l1_ops",
-    # HNSW bit vectors.
     (VectorIndexMethod.HNSW, VectorKind.BIT, VectorDistance.HAMMING): "bit_hamming_ops",
     (VectorIndexMethod.HNSW, VectorKind.BIT, VectorDistance.JACCARD): "bit_jaccard_ops",
-    # IVFFlat dense and half vectors.
     (VectorIndexMethod.IVFFLAT, VectorKind.VECTOR, VectorDistance.L2): "vector_l2_ops",
     (
         VectorIndexMethod.IVFFLAT,
@@ -170,7 +165,6 @@ _VECTOR_OPERATOR_CLASSES: dict[tuple[VectorIndexMethod, VectorKind, VectorDistan
         VectorKind.HALF_VECTOR,
         VectorDistance.COSINE,
     ): "halfvec_cosine_ops",
-    # IVFFlat supports Hamming distance for bit vectors, but not Jaccard.
     (VectorIndexMethod.IVFFLAT, VectorKind.BIT, VectorDistance.HAMMING): "bit_hamming_ops",
 }
 
