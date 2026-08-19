@@ -57,51 +57,8 @@ breaking changes.
 
 ## 0.3.0 - 2026-08-07
 
-### Added
-
-- Conservative AST-based Alembic migration safety linting with explicit, reviewable
-  waivers for high-risk operations.
-- CI enforcement that published migration revisions are immutable and every newly
-  added revision passes `prodkit-storage migration-check`.
-- Staged PostgreSQL migration helpers for concurrent indexes, deferred CHECK/FK
-  validation, explicit constraint validation, and prevalidated `SET NOT NULL`.
-- Transactional sync/async resumable backfill runners that commit each bounded batch
-  and its checkpoint atomically.
-- Live interruption/resume coverage proving a failed backfill batch rolls back without
-  advancing its checkpoint or skipping rows on restart.
-- Explicit runtime schema compatibility contract plus sync/async checks and the
-  `prodkit-storage schema-check` deployment command.
-- Live PostgreSQL RLS integration coverage proving tenant A cannot read or write
-  tenant B data through a non-superuser/non-`BYPASSRLS` runtime role.
-- Executable logical `pg_dump` -> `pg_restore` verification with source/restore
-  table-count comparison, including matching PostgreSQL client use inside CI.
-- Concurrent PostgreSQL pool + Redis saturation smoke with p50/p95/p99 reporting and
-  configurable release thresholds.
-- Bounded dependency-failure smoke proving unavailable PostgreSQL and Redis health
-  checks fail visibly and promptly instead of hanging or returning healthy.
-- Prometheus alert-rule and Grafana dashboard starter assets for database/Redis error,
-  latency, and transaction signals.
-- Database, Redis, and transactional-outbox incident runbooks.
-- Provider-neutral Terraform/deployment contract describing production PostgreSQL,
-  PostGIS, Redis, secret, role, backup, telemetry, failover, and release requirements.
-- Operational-hardening documentation separating repository guarantees from
-  deployment/application acceptance responsibilities.
-
-### Changed
-
-- CI now verifies `uv.lock` consistency and installs with `--locked` before running
-  release gates.
-- CI verifies schema compatibility through both sync and async paths after upgrade and
-  after downgrade/roll-forward.
-- CI performs a real backup/restore exercise, full live RLS and resumable-backfill
-  integration coverage, a DB/Redis saturation smoke, and a bounded dependency-failure
-  smoke in addition to existing lint, typing, migration, audit, image-scan, and SBOM
-  gates.
-- Observability documentation now maps package telemetry to the shipped Prometheus,
-  Grafana, and incident-response starter assets and documents exporter name-translation
-  assumptions.
-
-## 0.2.1 - 2026-08-07
+Cumulative correctness, security, migration, and operational-hardening release since
+`0.2.0`.
 
 ### Fixed
 
@@ -134,6 +91,33 @@ breaking changes.
 - Unit regression coverage for production secret validation, migration role
   identifiers, strict enum binding, audit/outbox grants, and outbox lease loss.
 - Migration rollback/roll-forward and Alembic metadata-drift checks in CI.
+- Conservative AST-based Alembic migration safety linting with explicit, reviewable
+  waivers for high-risk operations.
+- CI enforcement that published migration revisions are immutable and every newly
+  added revision passes `prodkit-storage migration-check`.
+- Staged PostgreSQL migration helpers for concurrent indexes, deferred CHECK/FK
+  validation, explicit constraint validation, and prevalidated `SET NOT NULL`.
+- Transactional sync/async resumable backfill runners that commit each bounded batch
+  and its checkpoint atomically.
+- Live interruption/resume coverage proving a failed backfill batch rolls back without
+  advancing its checkpoint or skipping rows on restart.
+- Explicit runtime schema compatibility contract plus sync/async checks and the
+  `prodkit-storage schema-check` deployment command.
+- Live PostgreSQL RLS integration coverage proving tenant A cannot read or write
+  tenant B data through a non-superuser/non-`BYPASSRLS` runtime role.
+- Executable logical `pg_dump` -> `pg_restore` verification with source/restore
+  table-count comparison, including matching PostgreSQL client use inside CI.
+- Concurrent PostgreSQL pool + Redis saturation smoke with p50/p95/p99 reporting and
+  configurable release thresholds.
+- Bounded dependency-failure smoke proving unavailable PostgreSQL and Redis health
+  checks fail visibly and promptly instead of hanging or returning healthy.
+- Prometheus alert-rule and Grafana dashboard starter assets for database/Redis error,
+  latency, and transaction signals.
+- Database, Redis, and transactional-outbox incident runbooks.
+- Provider-neutral Terraform/deployment contract describing production PostgreSQL,
+  PostGIS, Redis, secret, role, backup, telemetry, failover, and release requirements.
+- Operational-hardening documentation separating repository guarantees from
+  deployment/application acceptance responsibilities.
 
 ### Changed
 
@@ -141,6 +125,17 @@ breaking changes.
   passing CI before merging and explicitly forbids moving published tags.
 - Production migration and security documentation now separates privileged
   database bootstrap, migrator login identity, object ownership, and runtime grants.
+- CI now verifies `uv.lock` consistency and installs with `--locked` before running
+  release gates.
+- CI verifies schema compatibility through both sync and async paths after upgrade and
+  after downgrade/roll-forward.
+- CI performs a real backup/restore exercise, full live RLS and resumable-backfill
+  integration coverage, a DB/Redis saturation smoke, and a bounded dependency-failure
+  smoke in addition to existing lint, typing, migration, audit, image-scan, and SBOM
+  gates.
+- Observability documentation now maps package telemetry to the shipped Prometheus,
+  Grafana, and incident-response starter assets and documents exporter name-translation
+  assumptions.
 
 ## 0.2.0 - 2026-08-07
 
