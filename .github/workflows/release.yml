@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - "release/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Verify exact release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          version="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          with Path("pyproject.toml").open("rb") as handle:
+              print(tomllib.load(handle)["project"]["version"])
+          PY
+          )"
+          test "$GITHUB_REF_NAME" = "release/v${version}"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"
+          test "$(git status --porcelain)" = ""
+          echo "RELEASE_TAG=v${version}" >> "$GITHUB_ENV"
+      - name: Verify locked source
+        run: |
+          uv lock --check
+          uv sync --all-extras --locked
+          uv run ruff check .
+          uv run mypy
+          uv run pytest tests/unit --cov=prodkit_storage --cov-branch --cov-fail-under=80
+      - name: Build Python artifacts
+        run: uv build --out-dir dist
+      - name: Assemble source archive and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="dist/prodkit-storage-${RELEASE_TAG}-source.tar.gz"
+          git archive \
+            --format=tar.gz \
+            --prefix="prodkit-storage-${RELEASE_TAG}/" \
+            -o "$archive" \
+            HEAD
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          dist = Path("dist")
+          checksum_file = dist / "SHA256SUMS"
+          assets = sorted(
+              path for path in dist.iterdir()
+              if path.is_file() and path.name != checksum_file.name
+          )
+          if len(assets) < 3:
+              raise SystemExit("expected wheel, sdist, and source archive")
+
+          lines = []
+          for path in assets:
+              digest = sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              lines.append(f"{digest.hexdigest()}  {path.name}\n")
+          checksum_file.write_text("".join(lines), encoding="utf-8")
+          PY
+          test -s dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+      - name: Publish verified GitHub release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: python ops/release/publish_release.py dist
+      - name: Delete temporary release branch
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          api = os.environ["GITHUB_API_URL"].rstrip("/")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          branch = os.environ["RELEASE_BRANCH"]
+          token = os.environ["GITHUB_TOKEN"]
+          url = f"{api}/repos/{repo}/git/refs/heads/{quote(branch, safe='/')}"
+          request = Request(  # noqa: S310 - GITHUB_API_URL is GitHub-provided HTTPS.
+              url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "User-Agent": "prodkit-storage-release-cleanup",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+              method="DELETE",
+          )
+          with urlopen(request, timeout=60) as response:  # noqa: S310
+              if response.status != 204:
+                  raise SystemExit(f"unexpected cleanup status {response.status}")
+          PY
