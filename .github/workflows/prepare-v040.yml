@@ -1,0 +1,33 @@
+name: Prepare v0.4.0 lockfile
+
+on:
+  push:
+    branches:
+      - agent/postgresql-capabilities-v0.4.0
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/postgresql-capabilities-v0.4.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Regenerate lockfile
+        run: uv lock
+      - name: Commit deterministic lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "chore: regenerate uv.lock for v0.4.0"
+          git push origin HEAD:agent/postgresql-capabilities-v0.4.0
