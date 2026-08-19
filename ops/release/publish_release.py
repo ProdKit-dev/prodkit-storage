@@ -95,14 +95,21 @@ def load_local_assets(dist: Path, *, tag: str) -> dict[str, LocalAsset]:
     if set(manifest) != payload_names:
         missing = sorted(payload_names - set(manifest))
         extra = sorted(set(manifest) - payload_names)
-        raise ReleaseError(f"SHA256SUMS asset set mismatch; missing={missing}, extra={extra}")
+        raise ReleaseError(
+            f"SHA256SUMS asset set mismatch; missing={missing}, extra={extra}"
+        )
 
     assets: dict[str, LocalAsset] = {}
     for name, path in by_name.items():
         digest = sha256_file(path)
         if name != "SHA256SUMS" and manifest[name] != digest:
             raise ReleaseError(f"local checksum mismatch: {name}")
-        assets[name] = LocalAsset(name=name, path=path, size=path.stat().st_size, digest=digest)
+        assets[name] = LocalAsset(
+            name=name,
+            path=path,
+            size=path.stat().st_size,
+            digest=digest,
+        )
     return assets
 
 
@@ -135,7 +142,9 @@ def verify_remote_assets(
     if set(by_name) != set(expected):
         missing = sorted(set(expected) - set(by_name))
         extra = sorted(set(by_name) - set(expected))
-        raise ReleaseError(f"remote release asset set mismatch; missing={missing}, extra={extra}")
+        raise ReleaseError(
+            f"remote release asset set mismatch; missing={missing}, extra={extra}"
+        )
 
     for name, local in expected.items():
         matches = by_name[name]
@@ -268,12 +277,19 @@ class GitHubClient:
         raise ReleaseError("release pagination exceeded safety bound")
 
     def find_release(self, repository: str, tag: str) -> dict[str, Any] | None:
-        matches = [item for item in self.list_releases(repository) if item.get("tag_name") == tag]
+        matches = [
+            item for item in self.list_releases(repository) if item.get("tag_name") == tag
+        ]
         if len(matches) > 1:
             raise ReleaseError(f"multiple GitHub releases found for tag {tag}")
         return matches[0] if matches else None
 
-    def create_draft(self, repository: str, tag: str, target_sha: str) -> dict[str, Any]:
+    def create_draft(
+        self,
+        repository: str,
+        tag: str,
+        target_sha: str,
+    ) -> dict[str, Any]:
         payload = self.json(
             "POST",
             f"/repos/{repository}/releases",
@@ -305,6 +321,13 @@ class GitHubClient:
         if not isinstance(result, dict):
             raise ReleaseError("GitHub returned invalid updated release")
         return result
+
+    def delete_release(self, repository: str, release_id: int) -> None:
+        self.json(
+            "DELETE",
+            f"/repos/{repository}/releases/{release_id}",
+            expected=frozenset({204}),
+        )
 
     def list_assets(self, repository: str, release_id: int) -> list[dict[str, Any]]:
         assets: list[dict[str, Any]] = []
@@ -375,6 +398,24 @@ class GitHubClient:
             obj = tag_object.get("object")
         raise ReleaseError("tag indirection exceeded safety bound")
 
+    def create_tag_ref(self, repository: str, tag: str, target_sha: str) -> None:
+        try:
+            payload = self.json(
+                "POST",
+                f"/repos/{repository}/git/refs",
+                payload={"ref": f"refs/tags/{tag}", "sha": target_sha},
+                expected=frozenset({201}),
+                retry=False,
+            )
+        except ApiError as error:
+            if error.status == 422 and self.tag_target(repository, tag) == target_sha:
+                return
+            raise
+        if not isinstance(payload, dict):
+            raise ReleaseError("GitHub returned invalid created tag reference")
+        if self.tag_target(repository, tag) != target_sha:
+            raise ReleaseError("created tag does not resolve to exact release SHA")
+
 
 def release_id(release: dict[str, Any]) -> int:
     value = release.get("id")
@@ -383,7 +424,14 @@ def release_id(release: dict[str, Any]) -> int:
     return value
 
 
-def verify_release_metadata(release: dict[str, Any], *, target_sha: str) -> None:
+def verify_release_metadata(
+    release: dict[str, Any],
+    *,
+    tag: str,
+    target_sha: str,
+) -> None:
+    if release.get("tag_name") != tag:
+        raise ReleaseError("release tag_name does not match requested release tag")
     if release.get("draft") is not False:
         raise ReleaseError("release is still draft")
     if release.get("prerelease") is not False:
@@ -399,18 +447,15 @@ def prepare_draft_release(
     *,
     target_sha: str,
 ) -> dict[str, Any]:
-    """Return a draft pinned to the exact release SHA.
-
-    A previous failed promotion may leave a draft release behind before GitHub
-    creates the tag. Retargeting is allowed only while the release is still a
-    draft; callers must verify any existing tag before invoking this helper.
-    Published releases remain immutable and are handled separately.
-    """
+    """Return an unpublished draft pinned to the exact release SHA."""
 
     if release.get("draft") is not True:
-        raise ReleaseError("existing release is neither draft nor published")
+        raise ReleaseError("existing release is not a draft")
 
-    if release.get("target_commitish") != target_sha or release.get("prerelease") is not False:
+    if (
+        release.get("target_commitish") != target_sha
+        or release.get("prerelease") is not False
+    ):
         release = client.update_release(
             repository,
             release_id(release),
@@ -428,6 +473,47 @@ def prepare_draft_release(
     if release.get("target_commitish") != target_sha:
         raise ReleaseError("prepared draft does not target exact release SHA")
     return release
+
+
+def prepare_release_for_publication(
+    client: GitHubClient,
+    repository: str,
+    release: dict[str, Any] | None,
+    *,
+    tag: str,
+    target_sha: str,
+) -> tuple[dict[str, Any], bool]:
+    """Prepare a draft, or recognize an already-complete published release.
+
+    A failed historical publisher could expose a published GitHub Release before
+    creating its Git tag. A published release with no matching tag is incomplete,
+    so it is deleted and rebuilt from the exact current release source. A release
+    that already has an exact tag is treated as immutable and only verified.
+    """
+
+    existing_tag = client.tag_target(repository, tag)
+    if existing_tag is not None and existing_tag != target_sha:
+        raise ReleaseError(f"existing tag {tag} resolves to unexpected SHA {existing_tag}")
+
+    if release is not None and release.get("draft") is False:
+        if existing_tag == target_sha:
+            verify_release_metadata(release, tag=tag, target_sha=target_sha)
+            return release, True
+        client.delete_release(repository, release_id(release))
+        release = None
+
+    if release is None:
+        return client.create_draft(repository, tag, target_sha), False
+
+    return (
+        prepare_draft_release(
+            client,
+            repository,
+            release,
+            target_sha=target_sha,
+        ),
+        False,
+    )
 
 
 def sync_draft_assets(
@@ -465,6 +551,21 @@ def sync_draft_assets(
     verify_remote_assets(expected, client.list_assets(repository, rid))
 
 
+def ensure_exact_tag(
+    client: GitHubClient,
+    repository: str,
+    *,
+    tag: str,
+    target_sha: str,
+) -> None:
+    existing = client.tag_target(repository, tag)
+    if existing is None:
+        client.create_tag_ref(repository, tag, target_sha)
+        existing = client.tag_target(repository, tag)
+    if existing != target_sha:
+        raise ReleaseError(f"tag {tag} does not resolve to exact release SHA {target_sha}")
+
+
 def publish(dist: Path) -> None:
     token = os.environ.get("GITHUB_TOKEN", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")
@@ -483,51 +584,50 @@ def publish(dist: Path) -> None:
     expected = load_local_assets(dist, tag=tag)
     client = GitHubClient(token=token, api_url=api_url, max_attempts=max_attempts)
     release = client.find_release(repository, tag)
+    release, already_published = prepare_release_for_publication(
+        client,
+        repository,
+        release,
+        tag=tag,
+        target_sha=target_sha,
+    )
 
-    if release is not None and release.get("draft") is False:
-        verify_release_metadata(release, target_sha=target_sha)
-        if client.tag_target(repository, tag) != target_sha:
-            raise ReleaseError("published tag does not resolve to exact release SHA")
+    if already_published:
         verify_remote_assets(expected, client.list_assets(repository, release_id(release)))
-        print(f"release {tag} is already published and verified")
+        print(f"release {tag} is already published and verified at {target_sha}")
         return
 
-    existing_tag = client.tag_target(repository, tag)
-    if existing_tag is not None and existing_tag != target_sha:
-        raise ReleaseError(f"existing tag {tag} resolves to unexpected SHA {existing_tag}")
-
-    if release is None:
-        release = client.create_draft(repository, tag, target_sha)
-    else:
-        release = prepare_draft_release(
-            client,
-            repository,
-            release,
-            target_sha=target_sha,
-        )
-
     sync_draft_assets(client, repository, release, expected)
+    ensure_exact_tag(
+        client,
+        repository,
+        tag=tag,
+        target_sha=target_sha,
+    )
+
     rid = release_id(release)
     published = client.update_release(
         repository,
         rid,
-        {"draft": False, "prerelease": False, "target_commitish": target_sha},
+        {
+            "draft": False,
+            "prerelease": False,
+            "target_commitish": target_sha,
+        },
     )
-    verify_release_metadata(published, target_sha=target_sha)
+    verify_release_metadata(published, tag=tag, target_sha=target_sha)
     if client.tag_target(repository, tag) != target_sha:
         raise ReleaseError("published tag does not resolve to exact release SHA")
     verify_remote_assets(expected, client.list_assets(repository, rid))
     print(f"published and verified {tag} at {target_sha} with {len(expected)} assets")
 
 
-def main(argv: list[str] | None = None) -> int:
-    arguments = sys.argv[1:] if argv is None else argv
-    if len(arguments) != 1:
-        print("usage: publish_release.py DIST_DIRECTORY", file=sys.stderr)
-        return 2
+def main() -> int:
     try:
-        publish(Path(arguments[0]))
-    except (ReleaseError, OSError, ValueError) as error:
+        if len(sys.argv) != 2:
+            raise ReleaseError("usage: publish_release.py <release-directory>")
+        publish(Path(sys.argv[1]))
+    except (ReleaseError, ValueError) as error:
         print(f"release publication failed: {error}", file=sys.stderr)
         return 1
     return 0
