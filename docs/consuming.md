@@ -1,36 +1,44 @@
 # Using ProdKit Storage from another repository
 
-## Install (recommended: pin a release tag)
+## Install
 
-With [uv](https://github.com/astral-sh/uv):
+Pin a released version. Production consumers must not float on `main`.
+
+With `uv`:
 
 ```bash
-uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.1"
+uv add "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.4.0"
 ```
 
 Or in `pyproject.toml`:
 
 ```toml
 dependencies = [
-  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.1",
+  "prodkit-storage @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.4.0",
 ]
 ```
 
-Optional extras:
+Optional extras are additive. For example, a PostgreSQL search/projection adapter that needs pgvector SQLAlchemy types can install:
 
 ```bash
-uv add "prodkit-storage[shapes,observability] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.2.1"
+uv add "prodkit-storage[vector] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.4.0"
+```
+
+Other integrations can be combined as needed:
+
+```bash
+uv add "prodkit-storage[vector,shapes,observability] @ git+https://github.com/ProdKit-dev/prodkit-storage.git@v0.4.0"
 ```
 
 Private clone over SSH:
 
 ```toml
 dependencies = [
-  "prodkit-storage @ git+ssh://git@github.com/ProdKit-dev/prodkit-storage.git@v0.2.1",
+  "prodkit-storage @ git+ssh://git@github.com/ProdKit-dev/prodkit-storage.git@v0.4.0",
 ]
 ```
 
-Local path / editable (development only):
+Local editable dependency is appropriate only for coordinated development:
 
 ```bash
 uv add --editable "../prodkit-storage"
@@ -38,21 +46,27 @@ uv add --editable "../prodkit-storage"
 
 ## Configuration
 
-In the application environment (see this repo’s `.env.example`):
+In the application environment, using this repository's `.env.example` as the baseline:
 
 ```dotenv
 PRODKIT_STORAGE_ENVIRONMENT=production
 PRODKIT_STORAGE_DATABASE_URL=postgresql://user:password@db:5432/app
 PRODKIT_STORAGE_REDIS_URL=redis://127.0.0.1:6379/0
 PRODKIT_STORAGE_CURSOR_SIGNING_SECRET=<at-least-32-random-bytes>
-# Optional: modules that import models inheriting prodkit_storage.Base
 PRODKIT_STORAGE_ALEMBIC_MODEL_MODULES=myapp.models
-# Recommended when the migration login SET ROLEs to the schema owner
 PRODKIT_STORAGE_MIGRATION_OWNER_ROLE=prodkit_owner
 ```
 
-Provision approved PostgreSQL extensions such as PostGIS through infrastructure
-or a privileged database bootstrap before applying application migrations.
+Provision approved PostgreSQL extensions such as PostGIS, pgcrypto, `pg_stat_statements`, and `vector` through infrastructure or a privileged database bootstrap. Runtime code and routine application migrations must not silently create or upgrade privileged extensions.
+
+Use the capability command in deployment/readiness checks when a consumer depends on specific PostgreSQL features:
+
+```bash
+uv run prodkit-storage capabilities \
+  --require-extension vector \
+  --require-access-method hnsw \
+  --require-text-search-config simple
+```
 
 ## Minimal application wiring
 
@@ -74,14 +88,17 @@ redis = AsyncRedis(settings)
 # Keep product migrations in the app; upgrade deliberately when pins change.
 ```
 
-See `examples/consumer/` for a copy-paste starter `pyproject.toml` and module layout notes.
+Specialized PostgreSQL primitives are intentionally imported from `prodkit_storage.database` rather than the frozen package-root surface. This includes capability discovery, native full-text expressions, vector types/operator classes, advanced index DDL/introspection, JSONB expressions, and repeatable-read snapshot helpers.
+
+See `examples/consumer/` for a starter layout and [`postgresql-capabilities.md`](postgresql-capabilities.md) for the PostgreSQL capability boundary.
 
 ## Upgrade policy
 
-1. Prefer patch tags (`v0.2.2`) for compatible correctness/security fixes.
-2. Bump the pin in each app intentionally; do not float on `main`.
-3. Run the app's own tests, migrations, role/grant checks, and deployment readiness checks after every pin bump.
+1. Bump the exact release pin intentionally.
+2. Read the changelog and migration notes for every minor pre-1.0 upgrade.
+3. Run the consuming application's own tests, migrations, role/grant checks, capability checks, and deployment readiness checks.
+4. Revalidate ANN/FTS query plans, index build behavior, backup/restore, and capacity when the application uses those features.
 
-## What not to put in this package
+## Ownership boundary
 
-Domain entities, product-specific repositories, and business workflows stay in the application repository.
+ProdKit Storage owns reusable persistence and low-level PostgreSQL mechanics. Domain entities, product-specific repositories, business workflows, authorization semantics, embeddings, ranking, hybrid retrieval, suggestions, and search-index lifecycle stay in the consuming application or specialized package such as ProdKit Search.
