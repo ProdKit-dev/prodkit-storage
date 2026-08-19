@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from sqlalchemy import Connection, text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 DEFAULT_EXTENSION_NAMES = ("pgcrypto", "postgis", "vector")
@@ -177,25 +178,24 @@ def require_postgresql_capabilities(
     raise DatabaseCapabilityError("missing PostgreSQL capabilities: " + "; ".join(parts))
 
 
-def _extension_snapshot(rows: Iterable[object], names: tuple[str, ...]) -> tuple[ExtensionCapability, ...]:
+def _extension_snapshot(
+    rows: Iterable[RowMapping],
+    names: tuple[str, ...],
+) -> tuple[ExtensionCapability, ...]:
     selected = set(names)
     found: dict[str, ExtensionCapability] = {}
-    for row in rows:
-        mapping = row if hasattr(row, "get") else getattr(row, "_mapping", {})
-        name = str(mapping.get("name"))
+    for mapping in rows:
+        name = str(mapping["name"])
         if name not in selected:
             continue
-        default_version = mapping.get("default_version")
-        installed_version = mapping.get("installed_version")
+        default_version = mapping["default_version"]
+        installed_version = mapping["installed_version"]
         found[name] = ExtensionCapability(
             name=name,
             default_version=None if default_version is None else str(default_version),
             installed_version=None if installed_version is None else str(installed_version),
         )
-    return tuple(
-        found.get(name, ExtensionCapability(name, None, None))
-        for name in names
-    )
+    return tuple(found.get(name, ExtensionCapability(name, None, None)) for name in names)
 
 
 def _normalize_names(values: Iterable[str], kind: str) -> tuple[str, ...]:
