@@ -203,6 +203,9 @@ jobs:
         run: |
           rm -rf release-dist
           uv build --out-dir release-dist
+          # uv intentionally writes this control file to build output directories;
+          # it is not a distributable release asset.
+          rm -f release-dist/.gitignore
       - name: Assemble source archive and checksums
         shell: bash
         run: |
