@@ -6,7 +6,7 @@ on:
       - "release/v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
@@ -221,9 +221,16 @@ jobs:
           PY
           test -s release-dist/SHA256SUMS
           (cd release-dist && sha256sum -c SHA256SUMS)
+      - name: Generate ASTupidy token
+        id: astupidy
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ASTUPIDY_CLIENT_ID }}
+          private-key: ${{ secrets.ASTUPIDY_PRIVATE_KEY }}
+          permission-contents: write
       - name: Publish verified GitHub release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.astupidy.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_API_URL: ${{ github.api_url }}
@@ -232,7 +239,7 @@ jobs:
       - name: Delete temporary release branch
         if: success()
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.astupidy.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_API_URL: ${{ github.api_url }}
           RELEASE_BRANCH: ${{ github.ref_name }}

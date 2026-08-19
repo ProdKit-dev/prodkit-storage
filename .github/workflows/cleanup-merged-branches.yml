@@ -1,0 +1,65 @@
+name: Cleanup merged branches
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  delete-merged-head:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate ASTupidy token
+        id: astupidy
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ASTUPIDY_CLIENT_ID }}
+          private-key: ${{ secrets.ASTUPIDY_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Delete merged head branch as ASTupidy
+        env:
+          GITHUB_TOKEN: ${{ steps.astupidy.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          MERGED_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          api = os.environ["GITHUB_API_URL"].rstrip("/")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          branch = os.environ["MERGED_BRANCH"]
+          token = os.environ["GITHUB_TOKEN"]
+          url = f"{api}/repos/{repo}/git/refs/heads/{quote(branch, safe='/')}"
+          request = Request(  # noqa: S310 - GITHUB_API_URL is GitHub-provided HTTPS.
+              url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "User-Agent": "prodkit-storage-astupidy-cleanup",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+              method="DELETE",
+          )
+          try:
+              with urlopen(request, timeout=60) as response:  # noqa: S310
+                  if response.status != 204:
+                      raise SystemExit(
+                          f"unexpected branch cleanup status {response.status}"
+                      )
+          except HTTPError as error:
+              if error.code == 404:
+                  print(f"branch {branch} is already absent")
+              else:
+                  raise
+          PY
