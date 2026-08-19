@@ -4,6 +4,46 @@ All notable changes are documented here. The project follows semantic
 versioning after `1.0.0`; pre-1.0 minor releases may introduce documented
 breaking changes.
 
+## 0.4.0 - 2026-08-19
+
+### Added
+
+- Read-only sync/async PostgreSQL capability discovery for server version,
+  available/installed extensions, access methods, and text-search configurations.
+- Fail-closed capability requirements plus a `prodkit-storage capabilities` CLI command.
+- Optional `vector` extra backed by pgvector's SQLAlchemy types for vector, half-vector,
+  sparse-vector, and bit-vector columns.
+- Explicit pgvector distance/operator-class contracts for supported HNSW and IVFFlat
+  combinations with validated index tuning options.
+- PostgreSQL-native `tsvector`/`tsquery` expression helpers and GIN migration support.
+- Advanced compatible extensions to concurrent index creation for PostgreSQL access
+  methods, operator classes, storage parameters, predicates, and included columns.
+- Dedicated concurrent GIN, HNSW, and IVFFlat migration helpers that never install
+  privileged database extensions.
+- Sync/async PostgreSQL index introspection with validity/readiness checks.
+- Generic JSONB path/array-normalization expression helpers.
+- Explicit sync/async repeatable-read snapshot contexts for stable reconciliation and
+  inspection workloads.
+- PostgreSQL capability architecture/operations documentation and live PostgreSQL 18
+  + pgvector integration coverage.
+
+### Changed
+
+- CI now validates native PostgreSQL FTS capability and a dedicated PostgreSQL 18 +
+  pgvector lane in addition to the existing PostGIS/Redis foundation checks.
+- Package metadata now advertises Python 3.14 support and optional pgvector integration.
+- The documented database helper surface now includes reusable PostgreSQL capability
+  primitives while keeping the package-root API intentionally stable.
+
+### Security and boundaries
+
+- Extension lifecycle remains deployment-owned; runtime and ordinary Alembic paths do
+  not execute privileged `CREATE EXTENSION` or `ALTER EXTENSION` operations.
+- Search-domain semantics such as embeddings, ranking, hybrid fusion, suggestions, and
+  search index lifecycle remain outside ProdKit Storage.
+- Capability and index inspection are read-only, while migration helpers preserve
+  explicit Alembic/autocommit boundaries for concurrent PostgreSQL index creation.
+
 ## 0.3.0 - 2026-08-07
 
 ### Added
