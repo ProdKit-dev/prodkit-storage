@@ -133,7 +133,9 @@ async def inspect_postgresql_capabilities_async(
         )
     )
     access_result = await connection.execute(text("SELECT amname FROM pg_am ORDER BY amname"))
-    config_result = await connection.execute(text("SELECT cfgname FROM pg_ts_config ORDER BY cfgname"))
+    config_result = await connection.execute(
+        text("SELECT cfgname FROM pg_ts_config ORDER BY cfgname")
+    )
     return PostgreSQLCapabilities(
         server_version=server_version,
         server_version_num=server_version_num,
@@ -204,7 +206,10 @@ def _normalize_names(values: Iterable[str], kind: str) -> tuple[str, ...]:
 
 def _normalize_name(value: str, kind: str) -> str:
     normalized = value.strip().lower()
-    if not normalized or any(not (character.isalnum() or character == "_") for character in normalized):
+    invalid_character = any(
+        not (character.isalnum() or character == "_") for character in normalized
+    )
+    if not normalized or invalid_character:
         raise ValueError(f"{kind} name must contain only letters, digits, and underscores")
     return normalized
 
