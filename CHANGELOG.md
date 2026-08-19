@@ -26,6 +26,9 @@ breaking changes.
   inspection workloads.
 - PostgreSQL capability architecture/operations documentation and live PostgreSQL 18
   + pgvector integration coverage.
+- A permanent exact-`main` release proof that rebuilds the live PostgreSQL/PostGIS,
+  pgvector, Redis, migration, backup/restore, load/failure, rollback, audit, and image
+  security evidence before publication and exposes the exact promotion run as a commit status.
 
 ### Changed
 
@@ -34,6 +37,12 @@ breaking changes.
 - Package metadata now advertises Python 3.14 support and optional pgvector integration.
 - The documented database helper surface now includes reusable PostgreSQL capability
   primitives while keeping the package-root API intentionally stable.
+- GitHub Release publication now emits exactly one wheel, one sdist, one exact-source
+  archive, and `SHA256SUMS`; local and remote asset sets, sizes, and SHA-256 digests are
+  verified before a release becomes non-draft.
+- A failed pre-tag promotion may safely resume an existing unpublished draft by retargeting
+  it to the newly validated exact `main`; published releases and tags remain immutable and
+  mismatched existing tags continue to fail closed.
 
 ### Security and boundaries
 
@@ -43,6 +52,8 @@ breaking changes.
   search index lifecycle remain outside ProdKit Storage.
 - Capability and index inspection are read-only, while migration helpers preserve
   explicit Alembic/autocommit boundaries for concurrent PostgreSQL index creation.
+- Release publication never moves an existing tag, never rewrites a published release,
+  and refuses unexpected or hidden artifact payloads.
 
 ## 0.3.0 - 2026-08-07
 
