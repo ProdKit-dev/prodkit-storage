@@ -17,7 +17,8 @@ def jsonb_text_path(
     if not path:
         raise ValueError("at least one JSONB path component is required")
     normalized = tuple(_path_component(component) for component in path)
-    return func.jsonb_extract_path_text(expression, *(literal(component) for component in normalized))
+    path_arguments = tuple(literal(component) for component in normalized)
+    return func.jsonb_extract_path_text(expression, *path_arguments)
 
 
 def jsonb_array_or_scalar(expression: ColumnElement[Any]) -> ColumnElement[Any]:
