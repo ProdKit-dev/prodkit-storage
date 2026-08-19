@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 jobs:
   release:
@@ -59,6 +60,44 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
+      - name: Mark release proof pending
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_CONTEXT: prodkit-storage/release
+          RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+
+          api = os.environ["GITHUB_API_URL"].rstrip("/")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          payload = json.dumps(
+              {
+                  "state": "pending",
+                  "target_url": os.environ["RELEASE_RUN_URL"],
+                  "description": f"release proof running for {os.environ['GITHUB_REF_NAME']}",
+                  "context": os.environ["RELEASE_CONTEXT"],
+              }
+          ).encode("utf-8")
+          request = Request(  # noqa: S310 - GitHub-provided HTTPS API endpoint.
+              f"{api}/repos/{repo}/statuses/{sha}",
+              data=payload,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "prodkit-storage-release-status",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+              method="POST",
+          )
+          with urlopen(request, timeout=60) as response:  # noqa: S310
+              if response.status != 201:
+                  raise SystemExit(f"unexpected commit-status response {response.status}")
+          PY
       - name: Verify exact release source
         shell: bash
         run: |
@@ -235,4 +274,50 @@ jobs:
           with urlopen(request, timeout=60) as response:  # noqa: S310
               if response.status != 204:
                   raise SystemExit(f"unexpected cleanup status {response.status}")
+          PY
+      - name: Publish final release proof status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_CONTEXT: prodkit-storage/release
+          RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_JOB_STATUS: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+
+          job_status = os.environ["RELEASE_JOB_STATUS"]
+          state = {
+              "success": "success",
+              "failure": "failure",
+              "cancelled": "error",
+          }.get(job_status, "error")
+          api = os.environ["GITHUB_API_URL"].rstrip("/")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          payload = json.dumps(
+              {
+                  "state": state,
+                  "target_url": os.environ["RELEASE_RUN_URL"],
+                  "description": f"release proof {job_status} for {os.environ['GITHUB_REF_NAME']}",
+                  "context": os.environ["RELEASE_CONTEXT"],
+              }
+          ).encode("utf-8")
+          request = Request(  # noqa: S310 - GitHub-provided HTTPS API endpoint.
+              f"{api}/repos/{repo}/statuses/{sha}",
+              data=payload,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "prodkit-storage-release-status",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+              method="POST",
+          )
+          with urlopen(request, timeout=60) as response:  # noqa: S310
+              if response.status != 201:
+                  raise SystemExit(f"unexpected commit-status response {response.status}")
           PY
