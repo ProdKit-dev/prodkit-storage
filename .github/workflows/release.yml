@@ -200,29 +200,51 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
       - name: Build Python artifacts
-        run: uv build --out-dir dist
+        run: |
+          rm -rf release-dist
+          uv build --out-dir release-dist
       - name: Assemble source archive and checksums
         shell: bash
         run: |
           set -euo pipefail
-          archive="dist/prodkit-storage-${RELEASE_TAG}-source.tar.gz"
+          archive="release-dist/prodkit-storage-${RELEASE_TAG}-source.tar.gz"
           git archive \
             --format=tar.gz \
             --prefix="prodkit-storage-${RELEASE_TAG}/" \
             -o "$archive" \
             HEAD
           python - <<'PY'
+          import os
           from hashlib import sha256
           from pathlib import Path
 
-          dist = Path("dist")
+          dist = Path("release-dist")
+          tag = os.environ["RELEASE_TAG"]
           checksum_file = dist / "SHA256SUMS"
           assets = sorted(
-              path for path in dist.iterdir()
+              path
+              for path in dist.iterdir()
               if path.is_file() and path.name != checksum_file.name
           )
-          if len(assets) < 3:
-              raise SystemExit("expected wheel, sdist, and source archive")
+          source_name = f"prodkit-storage-{tag}-source.tar.gz"
+          wheels = [path for path in assets if path.name.endswith(".whl")]
+          sdists = [
+              path
+              for path in assets
+              if path.name.endswith(".tar.gz") and path.name != source_name
+          ]
+          if (
+              len(assets) != 3
+              or len(wheels) != 1
+              or len(sdists) != 1
+              or not (dist / source_name).is_file()
+          ):
+              raise SystemExit(
+                  "expected exactly one wheel, one sdist, and exact-source archive; "
+                  f"found={[path.name for path in assets]}"
+              )
+          if any(path.name.startswith(".") for path in assets):
+              raise SystemExit("hidden build state is not a release payload")
 
           lines = []
           for path in assets:
@@ -233,8 +255,8 @@ jobs:
               lines.append(f"{digest.hexdigest()}  {path.name}\n")
           checksum_file.write_text("".join(lines), encoding="utf-8")
           PY
-          test -s dist/SHA256SUMS
-          (cd dist && sha256sum -c SHA256SUMS)
+          test -s release-dist/SHA256SUMS
+          (cd release-dist && sha256sum -c SHA256SUMS)
       - name: Publish verified GitHub release
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -242,7 +264,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_API_URL: ${{ github.api_url }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: python ops/release/publish_release.py dist
+        run: python ops/release/publish_release.py release-dist
       - name: Delete temporary release branch
         if: success()
         env:
