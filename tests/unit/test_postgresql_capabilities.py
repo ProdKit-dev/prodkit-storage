@@ -106,7 +106,8 @@ def test_full_text_and_jsonb_expressions_compile_without_raw_query_interpolation
     assert "@@" in sql
 
     payload = column("payload", JSON)
-    path_sql = str(jsonb_text_path(payload, "profile", "name").compile(dialect=postgresql.dialect()))
+    path_expression = jsonb_text_path(payload, "profile", "name")
+    path_sql = str(path_expression.compile(dialect=postgresql.dialect()))
     array_sql = str(jsonb_array_or_scalar(payload).compile(dialect=postgresql.dialect()))
     assert "jsonb_extract_path_text" in path_sql
     assert "jsonb_typeof" in array_sql
