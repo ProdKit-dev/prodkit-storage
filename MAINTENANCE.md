@@ -1,6 +1,6 @@
 # Maintenance policy (frozen baseline)
 
-**Status:** target baseline **v0.3.0** as an internal application storage foundation.
+**Status:** target baseline **v0.4.0** as an internal application storage foundation.
 Prefer bugfixes and proven shared needs only after each tagged release.
 
 This package is intentionally stable. Prefer shipping product features in consuming applications over expanding this library.
@@ -8,7 +8,8 @@ This package is intentionally stable. Prefer shipping product features in consum
 ## Goals
 
 - Keep a small, typed persistence foundation for PostgreSQL/PostGIS, SQLAlchemy, Alembic, and Redis.
-- Avoid becoming a second framework on top of SQLAlchemy.
+- Provide reusable PostgreSQL capability primitives when multiple ProdKit consumers need the same low-level behavior.
+- Avoid becoming a second framework on top of SQLAlchemy or a domain-specific search/analytics layer.
 - Make upgrades in apps deliberate (pinned tags or exact versions only).
 - Turn critical persistence safety practices into executable release checks where a reusable library can do so honestly.
 
@@ -24,7 +25,7 @@ The public import surface in `prodkit_storage/__init__.py` is the primary contra
 - `RequestContext`, `request_context`, `tenant_context`
 - schema compatibility constants/policies/reports and sync/async checks
 
-Documented helpers under `prodkit_storage.database`, `prodkit_storage.redis`, `prodkit_storage.spatial`, audit/outbox, and the `prodkit-storage` CLI are also part of the consumer surface. Prefer the package root exports when possible.
+Documented helpers under `prodkit_storage.database`, `prodkit_storage.redis`, `prodkit_storage.spatial`, audit/outbox, and the `prodkit-storage` CLI are also part of the consumer surface. Prefer the package root exports when possible. PostgreSQL capability/vector/FTS/index helpers intentionally live under `prodkit_storage.database` so the stable package-root API does not grow for specialized consumers.
 
 ## Allowed changes
 
@@ -35,15 +36,18 @@ Documented helpers under `prodkit_storage.database`, `prodkit_storage.redis`, `p
 | Consumer docs | Clearer install, pin, and boundary guidance |
 | Operational guardrails | Reusable checks that prevent migration/data/isolation incidents |
 | Tiny shared APIs | Only when **two or more** apps need the same helper |
+| PostgreSQL capability primitives | Proven shared low-level needs such as extension discovery, reusable index DDL/introspection, FTS/vector types, or stable inspection snapshots |
 
 ## Not allowed without a proven need
 
 - New Redis/DB primitives “for completeness”
 - Domain models for a specific product
+- Search-domain semantics such as embeddings, ranking, hybrid fusion, suggestions, or search-index lifecycle
 - Breaking renames or API redesigns without a major version
 - Replacing SQLAlchemy/Redis with alternate stacks
 - Becoming a managed hosting, backup, failover, or multi-region orchestration product
 - Provider-specific infrastructure code presented as universally production-ready
+- Runtime or routine migration code that silently installs/upgrades privileged PostgreSQL extensions
 
 ## Versioning
 
@@ -74,10 +78,11 @@ Published Alembic revision files are immutable; add a new revision instead of ed
 | Engines, pools, sessions, UoW, repository helpers | Domain models and product schema |
 | Audit/outbox primitives | Business workflows and consumers |
 | Mixins, pagination, locks, RLS helpers | Product-specific policies and key naming |
+| PostgreSQL capability/type/index/snapshot primitives | Search ranking, embeddings, query semantics, projection/index lifecycle |
 | Foundation migrations for shared tables it ships | App Alembic revisions for app tables |
 | Migration/schema safety checks | App migration intent and production rollout decisions |
 | Backup/restore and load-smoke verification examples | Backup retention, PITR, RPO/RTO, HA/failover |
-| Config prefix `PRODKIT_STORAGE_*` | Deployment secrets, managed Postgres/Redis |
+| Config prefix `PRODKIT_STORAGE_*` | Deployment secrets, managed Postgres/Redis, extension provisioning/upgrades |
 
 ## Default decision
 
