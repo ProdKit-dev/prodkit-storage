@@ -1,4 +1,4 @@
-"""Operational CLI for health checks, schema safety, and Alembic migrations."""
+"""Operational CLI for health checks, capabilities, schema safety, and migrations."""
 
 from __future__ import annotations
 
@@ -12,6 +12,12 @@ from alembic import command
 from alembic.config import Config
 
 from prodkit_storage.config import StorageSettings
+from prodkit_storage.database.capabilities import (
+    DatabaseCapabilityError,
+    inspect_postgresql_capabilities_async,
+    inspect_postgresql_capabilities_sync,
+    require_postgresql_capabilities,
+)
 from prodkit_storage.database.health import check_async_database, check_sync_database
 from prodkit_storage.database.migration_safety import inspect_migration_file
 from prodkit_storage.database.runtime import AsyncDatabase, SyncDatabase
@@ -62,6 +68,53 @@ async def _doctor_async(settings: StorageSettings) -> int:
     return 0 if all(component["healthy"] for component in result.values()) else 1
 
 
+def _capabilities_sync(settings: StorageSettings, args: argparse.Namespace) -> int:
+    database = SyncDatabase(settings)
+    try:
+        with database.write_engine.connect() as connection:
+            report = inspect_postgresql_capabilities_sync(
+                connection,
+                extension_names=tuple(
+                    dict.fromkeys(("pgcrypto", "postgis", "vector", *args.require_extension))
+                ),
+            )
+    finally:
+        database.dispose()
+    return _print_capabilities(report, args)
+
+
+async def _capabilities_async(settings: StorageSettings, args: argparse.Namespace) -> int:
+    database = AsyncDatabase(settings)
+    try:
+        async with database.write_engine.connect() as connection:
+            report = await inspect_postgresql_capabilities_async(
+                connection,
+                extension_names=tuple(
+                    dict.fromkeys(("pgcrypto", "postgis", "vector", *args.require_extension))
+                ),
+            )
+    finally:
+        await database.dispose()
+    return _print_capabilities(report, args)
+
+
+def _print_capabilities(report: object, args: argparse.Namespace) -> int:
+    payload = asdict(report)  # type: ignore[arg-type]
+    try:
+        require_postgresql_capabilities(
+            report,  # type: ignore[arg-type]
+            extensions=args.require_extension,
+            access_methods=args.require_access_method,
+            text_search_configs=args.require_text_search_config,
+        )
+    except DatabaseCapabilityError as error:
+        payload["error"] = str(error)
+        print(json.dumps(payload, indent=2, default=str))
+        return 1
+    print(json.dumps(payload, indent=2, default=str))
+    return 0
+
+
 def _schema_check_sync(settings: StorageSettings) -> int:
     database = SyncDatabase(settings)
     try:
@@ -103,12 +156,25 @@ def _migration_check(paths: list[str]) -> int:
     return 1 if blocking else 0
 
 
+def _add_capability_requirements(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--async", dest="async_mode", action="store_true")
+    parser.add_argument("--require-extension", action="append", default=[])
+    parser.add_argument("--require-access-method", action="append", default=[])
+    parser.add_argument("--require-text-search-config", action="append", default=[])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="prodkit-storage")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     doctor = subparsers.add_parser("doctor", help="check PostgreSQL/PostGIS and Redis")
     doctor.add_argument("--async", dest="async_mode", action="store_true")
+
+    capabilities = subparsers.add_parser(
+        "capabilities",
+        help="inspect PostgreSQL extensions, access methods, and text-search configs",
+    )
+    _add_capability_requirements(capabilities)
 
     schema_check = subparsers.add_parser(
         "schema-check",
@@ -143,6 +209,12 @@ def main(argv: list[str] | None = None) -> int:
     settings = StorageSettings()
     if args.command == "doctor":
         return asyncio.run(_doctor_async(settings)) if args.async_mode else _doctor_sync(settings)
+    if args.command == "capabilities":
+        return (
+            asyncio.run(_capabilities_async(settings, args))
+            if args.async_mode
+            else _capabilities_sync(settings, args)
+        )
     if args.command == "schema-check":
         return (
             asyncio.run(_schema_check_async(settings))
