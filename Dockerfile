@@ -4,7 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN useradd --create-home --uid 10001 app
+RUN apt-get update \
+    && apt-get upgrade --yes \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 app
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
