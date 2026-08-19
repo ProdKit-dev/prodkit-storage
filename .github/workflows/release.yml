@@ -11,7 +11,46 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_DB: prodkit
+          POSTGRES_USER: prodkit
+          POSTGRES_PASSWORD: prodkit
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U prodkit -d prodkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      vector:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_DB: prodkit
+          POSTGRES_USER: prodkit
+          POSTGRES_PASSWORD: prodkit
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U prodkit -d prodkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8.8.1-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PRODKIT_STORAGE_ENVIRONMENT: test
+      PRODKIT_STORAGE_DATABASE_URL: postgresql://prodkit:prodkit@127.0.0.1:5432/prodkit
+      PRODKIT_STORAGE_VECTOR_TEST_DATABASE_URL: postgresql://prodkit:prodkit@127.0.0.1:5433/prodkit
+      PRODKIT_STORAGE_REDIS_URL: redis://127.0.0.1:6379/0
+      PRODKIT_STORAGE_CURSOR_SIGNING_SECRET: release-proof-secret-at-least-thirty-two-bytes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,11 +78,88 @@ jobs:
           echo "RELEASE_TAG=v${version}" >> "$GITHUB_ENV"
       - name: Verify locked source
         run: |
+          set -euo pipefail
           uv lock --check
           uv sync --all-extras --locked
           uv run ruff check .
           uv run mypy
-          uv run pytest tests/unit --cov=prodkit_storage --cov-branch --cov-fail-under=80
+          uv run pip-audit
+      - name: Bootstrap privileged PostgreSQL extensions
+        run: |
+          uv run python - <<'PY'
+          import psycopg
+
+          with psycopg.connect(
+              "postgresql://prodkit:prodkit@127.0.0.1:5432/prodkit",
+              autocommit=True,
+          ) as connection:
+              for extension in ("postgis", "pgcrypto"):
+                  connection.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
+
+          with psycopg.connect(
+              "postgresql://prodkit:prodkit@127.0.0.1:5433/prodkit",
+              autocommit=True,
+          ) as connection:
+              connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
+          PY
+      - name: Verify PostgreSQL capabilities
+        run: |
+          uv run prodkit-storage capabilities \
+            --require-extension postgis \
+            --require-access-method gin \
+            --require-text-search-config simple
+          PRODKIT_STORAGE_DATABASE_URL="$PRODKIT_STORAGE_VECTOR_TEST_DATABASE_URL" \
+            uv run prodkit-storage capabilities \
+              --require-extension vector \
+              --require-access-method hnsw \
+              --require-access-method ivfflat
+      - name: Verify migrations and schema
+        run: |
+          set -euo pipefail
+          uv run alembic upgrade head --sql > /tmp/migration.sql
+          uv run alembic upgrade head
+          uv run alembic current --verbose
+          uv run alembic heads --verbose
+          uv run alembic check
+          uv run prodkit-storage schema-check
+          uv run prodkit-storage schema-check --async
+      - name: Verify logical backup and restore
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          uv run python ops/backup/verify_postgres_backup.py \
+            --database-url "$PRODKIT_STORAGE_DATABASE_URL" \
+            --docker-container "$POSTGRES_CONTAINER"
+      - name: Run complete test suite
+        run: uv run pytest --cov --cov-report=term-missing
+      - name: Run database and Redis saturation smoke
+        run: |
+          uv run python ops/load/storage_smoke.py \
+            --iterations 40 \
+            --concurrency 8 \
+            --database-p95-ms 1000 \
+            --redis-p95-ms 500
+      - name: Verify dependency failures are visible and bounded
+        run: uv run python ops/failure/dependency_failure_smoke.py
+      - name: Verify one-step downgrade and roll-forward
+        run: |
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+          uv run alembic current
+          uv run alembic check
+          uv run prodkit-storage schema-check
+          uv run prodkit-storage schema-check --async
+      - name: Build and scan release image
+        run: docker build --tag prodkit-storage:release .
+      - name: Scan release image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: prodkit-storage:release
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
       - name: Build Python artifacts
         run: uv build --out-dir dist
       - name: Assemble source archive and checksums
