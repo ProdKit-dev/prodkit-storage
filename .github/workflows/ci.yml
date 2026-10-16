@@ -141,7 +141,7 @@ jobs:
           uv run alembic check 2>&1 | tee -a /tmp/alembic-check.log
       - name: Upload Alembic drift report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: prodkit-storage-alembic-check
           path: /tmp/alembic-check.log
@@ -159,7 +159,7 @@ jobs:
           uv run pytest --cov --cov-report=term-missing 2>&1 | tee /tmp/pytest.log
       - name: Upload pytest report
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: prodkit-storage-pytest
           path: /tmp/pytest.log
@@ -206,7 +206,7 @@ jobs:
           severity: CRITICAL,HIGH
       - name: Upload Trivy report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: prodkit-storage-trivy
           path: trivy-results.json
@@ -220,7 +220,7 @@ jobs:
           output-file: prodkit-storage.spdx.json
       - name: Upload SPDX SBOM
         if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: prodkit-storage-sbom
           path: prodkit-storage.spdx.json
