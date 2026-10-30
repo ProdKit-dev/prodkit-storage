@@ -34,6 +34,8 @@ dependencies = [
   "annotated-types>=0.7,<1",
   "SQLAlchemy[asyncio]>=2.0.51,<2.2",
   "alembic>=1.19,<2",
+  # Alembic relies on Mako; require the patched Windows template path confinement behavior.
+  "Mako>=1.4.2,<2",
   "asyncpg>=0.30,<1",
   "geoalchemy2>=0.20,<1",
   "orjson>=3.10,<4",
