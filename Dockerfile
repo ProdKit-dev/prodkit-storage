@@ -15,17 +15,18 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install . \
     && python -m pip uninstall --yes setuptools msgpack \
     && python -m pip check \
+    && python -m pip uninstall --yes pip \
     && python - <<'PY'
 from importlib.metadata import PackageNotFoundError, distribution
 
-for package in ("msgpack", "setuptools"):
+for package in ("msgpack", "setuptools", "pip"):
     try:
         installed = distribution(package)
     except PackageNotFoundError:
         continue
     raise SystemExit(
         f"unexpected runtime distribution {package}=={installed.version}; "
-        "remove the Trivy exception only after updating the base-image SBOM"
+        "remove the packaging-tools exception only after updating the image SBOM"
     )
 PY
 USER app
