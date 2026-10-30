@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS runtime
+FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -15,17 +15,18 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install . \
     && python -m pip uninstall --yes setuptools msgpack \
     && python -m pip check \
+    && python -m pip uninstall --yes pip \
     && python - <<'PY'
 from importlib.metadata import PackageNotFoundError, distribution
 
-for package in ("msgpack", "setuptools"):
+for package in ("msgpack", "setuptools", "pip"):
     try:
         installed = distribution(package)
     except PackageNotFoundError:
         continue
     raise SystemExit(
         f"unexpected runtime distribution {package}=={installed.version}; "
-        "remove the Trivy exception only after updating the base-image SBOM"
+        "remove the packaging-tools exception only after updating the image SBOM"
     )
 PY
 USER app

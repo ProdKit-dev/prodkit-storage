@@ -56,7 +56,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
       - name: Verify exact release source
@@ -223,7 +223,7 @@ jobs:
           (cd release-dist && sha256sum -c SHA256SUMS)
       - name: Generate ASTupidy token
         id: astupidy
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.ASTUPIDY_CLIENT_ID }}
           private-key: ${{ secrets.ASTUPIDY_PRIVATE_KEY }}
